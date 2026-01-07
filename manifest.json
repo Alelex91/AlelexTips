@@ -1,0 +1,17 @@
+
+{
+  "short_name": "NeoTip",
+  "name": "NeoTip AI Betting Oracle",
+  "icons": [
+    {
+      "src": "https://img.icons8.com/neon/512/matrix.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#050607",
+  "background_color": "#050607"
+}

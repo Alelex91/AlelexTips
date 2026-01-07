@@ -1,0 +1,16 @@
+
+runtime: nodejs18
+
+handlers:
+  # Serve all static files from the dist directory
+  - url: /assets
+    static_dir: dist/assets
+
+  - url: /manifest.json
+    static_files: dist/manifest.json
+    upload: dist/manifest.json
+
+  - url: /.*
+    static_files: dist/index.html
+    upload: dist/index.html
+    secure: always
