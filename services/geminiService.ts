@@ -4,32 +4,35 @@ import { Schedina, Prediction, GroundingSource } from "../types";
 
 export class BettingService {
   private getAiInstance() {
+    // Netlify inietta le variabili d'ambiente durante la build.
+    // Se non la trovi, significa che il deploy non è stato aggiornato dopo l'inserimento.
     const apiKey = process.env.API_KEY;
     
-    // Se la chiave è mancante o è la stringa letterale "undefined" (comune in build fallite)
     if (!apiKey || apiKey === "undefined" || apiKey === "") {
-      throw new Error("CHIAVE_NON_RILEVATA: Netlify non ha iniettato la chiave. Assicurati di aver collegato GitHub e fatto il Deploy del sito.");
+      throw new Error("CONFIGURAZIONE_MANCANTE: La API_KEY non è stata iniettata nel sistema.");
     }
     
     try {
       return new GoogleGenAI({ apiKey });
     } catch (e) {
-      throw new Error("ERRORE_SDK: Impossibile inizializzare Gemini. Verifica la validità della chiave.");
+      throw new Error("ERRORE_CHIAVE: La chiave inserita non è valida o è scaduta.");
     }
   }
 
   async generateDailySchedina(): Promise<Schedina> {
     try {
       const ai = this.getAiInstance();
+      const modelName = 'gemini-3-flash-preview';
+      
       const prompt = `
-        Agisci come NeoTip Expert AI. 
-        Analizza i match di calcio odierni e genera una schedina da 5 eventi.
-        Usa quote realistiche tra 1.50 e 2.50.
-        Rispondi ESCLUSIVAMENTE in JSON.
+        Agisci come NeoTip Expert AI. Analizza i match di calcio di oggi.
+        Trova i 5 match più sicuri e genera una schedina.
+        Fornisci dati realistici e ragionamenti tecnici in italiano.
+        Rispondi ESCLUSIVAMENTE in formato JSON.
       `;
 
       const result = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
+        model: modelName,
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -77,53 +80,29 @@ export class BettingService {
       });
 
       const data = JSON.parse(result.text || "{}") as Schedina;
-      
       const sources: GroundingSource[] = [];
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
       if (chunks) {
         chunks.forEach((chunk: any) => {
           if (chunk.web && chunk.web.uri) {
-            sources.push({
-              title: chunk.web.title || "Fonte Analisi",
-              uri: chunk.web.uri
-            });
+            sources.push({ title: chunk.web.title || "Fonte", uri: chunk.web.uri });
           }
         });
       }
       
       return { ...data, sources: sources.slice(0, 5) };
     } catch (error: any) {
-      console.error("Gemini Error:", error);
-      throw new Error(error.message || "Errore durante la scansione neurale.");
-    }
-  }
-
-  async refreshMatchStats(currentPredictions: Prediction[]): Promise<Prediction[]> {
-    try {
-      const ai = this.getAiInstance();
-      const matches = currentPredictions.map(p => `${p.match.homeTeam}-${p.match.awayTeam}`).join(", ");
-      const prompt = `Aggiorna quote e infortuni per: ${matches}`;
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-        config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json"
-        },
-      });
-      return JSON.parse(response.text || "[]") as Prediction[];
-    } catch (e) { 
-      return currentPredictions; 
+      console.error("BettingService Error:", error);
+      throw new Error(error.message || "Errore di connessione al database neurale.");
     }
   }
 
   createChatSession(): Chat {
     const ai = this.getAiInstance();
     return ai.chats.create({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Expert AI. Analizzi il codice dello sport. Rispondi in italiano con stile Matrix.",
+        systemInstruction: "Sei NeoTip Expert AI. Rispondi in italiano con stile Matrix. Fornisci consigli basati sui dati.",
         tools: [{ googleSearch: {} }]
       },
     });
