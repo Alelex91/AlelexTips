@@ -1,0 +1,7 @@
+{
+  "name": "NeoTip - AI Betting Insights",
+  "description": "App di analisi e suggerimenti scommesse sportive basata su AI con estetica Matrix. Analizza i match del giorno e crea schedine elaborate con combo, angoli e cartellini.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
