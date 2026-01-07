@@ -14,6 +14,7 @@ const App: React.FC = () => {
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [schedina, setSchedina] = useState<Schedina | null>(null);
   const [history, setHistory] = useState<PlayedSchedina[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [stake, setStake] = useState<number>(10);
@@ -21,7 +22,7 @@ const App: React.FC = () => {
 
   const bettingService = useMemo(() => new BettingService(), []);
 
-  // Caricamento iniziale dei dati persistenti
+  // 1. Carica dati all'avvio
   useEffect(() => {
     const authorized = localStorage.getItem('neotip_authorized') === 'true';
     setIsAuthorized(authorized);
@@ -35,14 +36,15 @@ const App: React.FC = () => {
         console.error("Errore recupero cronologia", e); 
       }
     }
+    setHistoryLoaded(true);
   }, []);
 
-  // Sincronizzazione localStorage ogni volta che la cronologia cambia
+  // 2. Salva dati quando cambiano (solo dopo il caricamento iniziale)
   useEffect(() => {
-    if (history.length > 0 || localStorage.getItem('neotip_history')) {
+    if (historyLoaded) {
       localStorage.setItem('neotip_history', JSON.stringify(history));
     }
-  }, [history]);
+  }, [history, historyLoaded]);
 
   const handleAccessGranted = () => {
     localStorage.setItem('neotip_authorized', 'true');
@@ -79,13 +81,7 @@ const App: React.FC = () => {
       status: 'Pending' as BetStatus
     };
 
-    // Aggiorna lo stato e forza il salvataggio
-    setHistory(prev => {
-      const updated = [newPlayedBet, ...prev];
-      localStorage.setItem('neotip_history', JSON.stringify(updated));
-      return updated;
-    });
-
+    setHistory(prev => [newPlayedBet, ...prev]);
     setShowSuccess(true);
     
     setTimeout(() => {
@@ -117,7 +113,7 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen max-w-lg mx-auto bg-[#050607] pb-28 relative animate-fadeIn overflow-x-hidden">
       {showSuccess && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md animate-fadeIn">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 backdrop-blur-md">
           <div className="glass-morphism p-10 rounded-[3rem] text-center border-[#00FF66]/40 shadow-[0_0_50px_rgba(0,255,102,0.2)]">
             <div className="w-16 h-16 bg-[#00FF66] rounded-full flex items-center justify-center mb-4 mx-auto animate-bounce">
               <svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#050607" strokeWidth="4"><polyline points="20 6 9 17 4 12"></polyline></svg>
