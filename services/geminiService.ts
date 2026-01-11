@@ -96,7 +96,10 @@ export class BettingService {
         },
       });
 
-      const responseText = result.text || "{}";
+      // Fix TS18048: Assicuriamoci che result.text sia una stringa
+      const rawText = result.text;
+      const responseText = typeof rawText === 'string' ? rawText : "{}";
+      
       const data = JSON.parse(responseText.trim()) as Schedina;
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
       const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
@@ -104,7 +107,11 @@ export class BettingService {
         uri: chunk.web?.uri || chunk.maps?.uri || ""
       })).filter((s: any) => s.uri) || [];
       
-      return { ...data, sources: sources.slice(0, 5), lastUpdated: new Date().toLocaleTimeString('it-IT') };
+      return { 
+        ...data, 
+        sources: sources.slice(0, 5), 
+        lastUpdated: new Date().toLocaleTimeString('it-IT') 
+      };
     } catch (error: any) {
       console.error("BettingService Error:", error);
       throw error;
@@ -150,7 +157,9 @@ export class BettingService {
       }
     });
 
-    const responseText = result.text || "{}";
+    // Fix TS18048
+    const rawText = result.text;
+    const responseText = typeof rawText === 'string' ? rawText : "{}";
     return JSON.parse(responseText.trim()) as ComboTip;
   }
 
@@ -176,7 +185,11 @@ export class BettingService {
       uri: chunk.maps?.uri || ""
     })).filter((s: any) => s.uri) || [];
 
-    return { text: response.text || "Nessun centro scommesse trovato nelle vicinanze.", sources };
+    // Fix TS2322: Assicuriamo che text sia sempre stringa (mai undefined)
+    const rawText = response.text;
+    const finalText = typeof rawText === 'string' ? rawText : "Nessun centro scommesse trovato nelle vicinanze.";
+
+    return { text: finalText, sources };
   }
 
   createChatSession(lat?: number, lng?: number): Chat {
