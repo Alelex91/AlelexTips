@@ -2,17 +2,17 @@ import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai"
 import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
-  private getAiInstance() {
+  private getAiInstance(): GoogleGenAI {
     const apiKey = process.env.API_KEY;
     if (!apiKey) {
-      throw new Error("API_KEY non configurata nell'ambiente.");
+      throw new Error("API_KEY non configurata. Assicurarsi che la variabile d'ambiente sia presente.");
     }
     return new GoogleGenAI({ apiKey });
   }
 
-  private cleanJsonString(text: string): string {
+  private cleanJsonString(text: string | undefined): string {
     if (!text) return "{}";
-    // Rimuove blocchi di codice markdown se presenti nella risposta dell'AI
+    // Rimuove eventuali blocchi di codice Markdown generati dal modello
     return text.replace(/```json/g, "").replace(/```/g, "").trim();
   }
 
@@ -26,10 +26,11 @@ export class BettingService {
       const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
       const prompt = `DATA ATTUALE: ${todayStr} - ORE: ${timeStr} (Fuso Orario: Europe/Rome).
-      Sei un oracolo sportivo. Genera analisi per match che iniziano DOPO le ${timeStr} di oggi o domani.
+      Sei NeoTip Oracle, un esperto di analisi predittiva sportiva. 
+      Genera analisi per match che iniziano DOPO le ${timeStr} di oggi o domani.
       Discipline: Football, Basketball, Tennis, Volley.
-      Includi statistiche avanzate: H2H, Forma, Media Gol/Punti.
-      Usa quote reali tramite Google Search.`;
+      Usa quote reali e informazioni aggiornate tramite Google Search. 
+      Ritorna i dati strettamente in formato JSON secondo lo schema definito.`;
 
       const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
@@ -53,7 +54,7 @@ export class BettingService {
                         league: { type: Type.STRING },
                         time: { type: Type.STRING },
                         date: { type: Type.STRING },
-                        sport: { type: Type.STRING, enum: ["Football", "Basketball", "Tennis", "Volley"] },
+                        sport: { type: Type.STRING },
                         imageUrl: { type: Type.STRING }
                       },
                       required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"],
@@ -82,7 +83,7 @@ export class BettingService {
                   type: Type.OBJECT,
                   properties: {
                     title: { type: Type.STRING },
-                    type: { type: Type.STRING, enum: ["Safe", "HighRisk"] },
+                    type: { type: Type.STRING },
                     predictions: { 
                       type: Type.ARRAY, 
                       items: { 
@@ -107,17 +108,17 @@ export class BettingService {
 
       const rawText = response.text;
       if (!rawText) {
-        throw new Error("L'AI non ha restituito alcun contenuto testuale.");
+        throw new Error("L'oracolo non ha risposto correttamente. Database vuoto.");
       }
       
       const responseText = this.cleanJsonString(rawText);
       const data = JSON.parse(responseText) as Schedina;
       
-      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-      const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
-        title: chunk.web?.title || chunk.maps?.title || "Fonte Oracle",
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const sources: GroundingSource[] = chunks.map((chunk: any) => ({
+        title: chunk.web?.title || chunk.maps?.title || "Fonte Analisi",
         uri: chunk.web?.uri || chunk.maps?.uri || ""
-      })).filter((s: any) => s.uri !== "") || [];
+      })).filter((s: GroundingSource) => s.uri !== "");
       
       return { 
         ...data, 
@@ -125,7 +126,7 @@ export class BettingService {
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (error: any) {
-      console.error("BettingService Error:", error);
+      console.error("BettingService - generateDailySchedina Error:", error);
       throw error;
     }
   }
@@ -140,9 +141,9 @@ export class BettingService {
       bet: p.bet
     }));
 
-    const prompt = `Crea una combo "SORPRESA" da 3 eventi basata su questi dati: ${JSON.stringify(matchData)}. Stile Matrix.`;
+    const prompt = `Sei l'Oracolo di NeoTip. Basandoti su questi dati: ${JSON.stringify(matchData)}, genera una combo "SURPRISE" ad alto potenziale (3 eventi). Fornisci ragionamenti in stile Matrix.`;
 
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await ai.models.generateContent({
       model: modelName,
       contents: prompt,
       config: {
@@ -170,9 +171,7 @@ export class BettingService {
     });
 
     const rawText = response.text;
-    if (!rawText) {
-      throw new Error("Errore durante la generazione della combo sorpresa.");
-    }
+    if (!rawText) throw new Error("Errore generazione combo.");
     return JSON.parse(this.cleanJsonString(rawText)) as ComboTip;
   }
 
@@ -180,9 +179,9 @@ export class BettingService {
     const ai = this.getAiInstance();
     const model = "gemini-2.5-flash-lite-latest";
     
-    const response = await ai.models.generateContent({
+    const response: GenerateContentResponse = await ai.models.generateContent({
       model: model,
-      contents: "Trova i centri scommesse (SNAI, Goldbet, Planetwin365, etc.) più vicini alla mia posizione e dimmi gli orari se disponibili.",
+      contents: "Identifica i centri scommesse più vicini alla mia posizione corrente (SNAI, Goldbet, Eurobet, etc.) e fornisci indicazioni.",
       config: {
         tools: [{ googleMaps: {} }],
         toolConfig: {
@@ -193,15 +192,13 @@ export class BettingService {
       },
     });
 
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources: GroundingSource[] = chunks.map((chunk: any) => ({
       title: chunk.maps?.title || "Centro Scommesse",
       uri: chunk.maps?.uri || ""
-    })).filter((s: any) => s.uri !== "") || [];
+    })).filter((s: GroundingSource) => s.uri !== "");
 
-    const finalText = response.text || "Nessun centro scommesse trovato nelle vicinanze.";
-
-    return { text: finalText, sources };
+    return { text: response.text || "Nessun centro scommesse rilevato.", sources };
   }
 
   createChatSession(lat?: number, lng?: number): Chat {
@@ -209,9 +206,9 @@ export class BettingService {
     return ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip AI Oracle. Aiuti gli utenti con analisi sportive e a trovare centri scommesse fisici se richiesto. Usa sempre i link di grounding se disponibili per fornire prove concrete.",
+        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con un tono tecnico, futuristico e professionale. Aiuta l'utente con analisi scommesse e trova centri fisici tramite Google Maps se richiesto. Mostra sempre le fonti dei dati.",
         tools: [{ googleSearch: {} }, { googleMaps: {} }],
-        ...(lat && lng ? {
+        ...(lat !== undefined && lng !== undefined ? {
           toolConfig: {
             retrievalConfig: {
               latLng: { latitude: lat, longitude: lng }
