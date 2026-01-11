@@ -1,10 +1,13 @@
-
-import { GoogleGenAI, Type, Chat } from "@google/genai";
-import { Schedina, GroundingSource, SportType, ComboTip, Prediction } from "../types";
+import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
+import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private getAiInstance() {
-    return new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+    return new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+  }
+
+  private cleanJsonString(text: string): string {
+    return text.replace(/```json/g, "").replace(/```/g, "").trim();
   }
 
   async generateDailySchedina(): Promise<Schedina> {
@@ -22,7 +25,7 @@ export class BettingService {
       Includi statistiche avanzate: H2H, Forma, Media Gol/Punti.
       Usa quote reali tramite Google Search.`;
 
-      const result = await ai.models.generateContent({
+      const result: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
@@ -96,16 +99,14 @@ export class BettingService {
         },
       });
 
-      // Fix TS18048: Assicuriamoci che result.text sia una stringa
-      const rawText = result.text;
-      const responseText = typeof rawText === 'string' ? rawText : "{}";
+      const responseText = result.text ? this.cleanJsonString(result.text) : "{}";
+      const data = JSON.parse(responseText) as Schedina;
       
-      const data = JSON.parse(responseText.trim()) as Schedina;
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
       const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
         title: chunk.web?.title || chunk.maps?.title || "Fonte",
         uri: chunk.web?.uri || chunk.maps?.uri || ""
-      })).filter((s: any) => s.uri) || [];
+      })).filter((s: any) => s.uri !== "") || [];
       
       return { 
         ...data, 
@@ -157,10 +158,8 @@ export class BettingService {
       }
     });
 
-    // Fix TS18048
-    const rawText = result.text;
-    const responseText = typeof rawText === 'string' ? rawText : "{}";
-    return JSON.parse(responseText.trim()) as ComboTip;
+    const responseText = result.text ? this.cleanJsonString(result.text) : "{}";
+    return JSON.parse(responseText) as ComboTip;
   }
 
   async getNearbyBettingShops(lat: number, lng: number): Promise<{text: string, sources: GroundingSource[]}> {
@@ -180,14 +179,13 @@ export class BettingService {
       },
     });
 
-    const sources: GroundingSource[] = response.candidates?.[0]?.groundingMetadata?.groundingChunks?.map((chunk: any) => ({
+    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+    const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
       title: chunk.maps?.title || "Centro Scommesse",
       uri: chunk.maps?.uri || ""
-    })).filter((s: any) => s.uri) || [];
+    })).filter((s: any) => s.uri !== "") || [];
 
-    // Fix TS2322: Assicuriamo che text sia sempre stringa (mai undefined)
-    const rawText = response.text;
-    const finalText = typeof rawText === 'string' ? rawText : "Nessun centro scommesse trovato nelle vicinanze.";
+    const finalText = response.text || "Nessun centro scommesse trovato nelle vicinanze.";
 
     return { text: finalText, sources };
   }
