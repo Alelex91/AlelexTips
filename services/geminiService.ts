@@ -106,9 +106,9 @@ export class BettingService {
         },
       });
 
-      const rawText = response.text;
+      const rawText: string | undefined = response.text;
       if (!rawText) {
-        throw new Error("L'oracolo non ha risposto correttamente. Database vuoto.");
+        throw new Error("L'oracolo non ha prodotto testo. Database non raggiungibile.");
       }
       
       const responseText = this.cleanJsonString(rawText);
@@ -116,7 +116,7 @@ export class BettingService {
       
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || chunk.maps?.title || "Fonte Analisi",
+        title: chunk.web?.title || chunk.maps?.title || "Analisi Fonte",
         uri: chunk.web?.uri || chunk.maps?.uri || ""
       })).filter((s: GroundingSource) => s.uri !== "");
       
