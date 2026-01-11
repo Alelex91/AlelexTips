@@ -3,11 +3,16 @@ import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private getAiInstance() {
-    return new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API_KEY non configurata nell'ambiente.");
+    }
+    return new GoogleGenAI({ apiKey });
   }
 
   private cleanJsonString(text: string): string {
-    // Rimuove blocchi di codice markdown se presenti
+    if (!text) return "{}";
+    // Rimuove blocchi di codice markdown se presenti nella risposta dell'AI
     return text.replace(/```json/g, "").replace(/```/g, "").trim();
   }
 
@@ -100,10 +105,12 @@ export class BettingService {
         },
       });
 
-      const text = response.text;
-      if (!text) throw new Error("L'AI non ha restituito testo.");
+      const rawText = response.text;
+      if (!rawText) {
+        throw new Error("L'AI non ha restituito alcun contenuto testuale.");
+      }
       
-      const responseText = this.cleanJsonString(text);
+      const responseText = this.cleanJsonString(rawText);
       const data = JSON.parse(responseText) as Schedina;
       
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
@@ -162,9 +169,11 @@ export class BettingService {
       }
     });
 
-    const text = response.text;
-    if (!text) throw new Error("Errore generazione sorpresa.");
-    return JSON.parse(this.cleanJsonString(text)) as ComboTip;
+    const rawText = response.text;
+    if (!rawText) {
+      throw new Error("Errore durante la generazione della combo sorpresa.");
+    }
+    return JSON.parse(this.cleanJsonString(rawText)) as ComboTip;
   }
 
   async getNearbyBettingShops(lat: number, lng: number): Promise<{text: string, sources: GroundingSource[]}> {
@@ -200,7 +209,7 @@ export class BettingService {
     return ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip AI Oracle. Aiuti gli utenti con analisi sportive e a trovare centri scommesse fisici se richiesto. Usa sempre i link di grounding se disponibili.",
+        systemInstruction: "Sei NeoTip AI Oracle. Aiuti gli utenti con analisi sportive e a trovare centri scommesse fisici se richiesto. Usa sempre i link di grounding se disponibili per fornire prove concrete.",
         tools: [{ googleSearch: {} }, { googleMaps: {} }],
         ...(lat && lng ? {
           toolConfig: {
