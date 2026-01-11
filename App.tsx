@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { BettingService } from './services/geminiService';
 import { Schedina, PlayedSchedina, BetStatus, SportType, ComboTip, Prediction } from './types';
@@ -45,7 +44,6 @@ const App: React.FC = () => {
       try {
         setHistory(JSON.parse(saved));
       } catch (e) {
-        console.error("History parse error", e);
         setHistory([]);
       }
     }
@@ -65,14 +63,20 @@ const App: React.FC = () => {
       const data = await bettingService.generateDailySchedina();
       setSchedina(data);
     } catch (err: any) {
-      setError("Errore sincronizzazione Oracle. Verifica la connessione.");
+      console.error("App.tsx Error:", err);
+      // Forniamo un messaggio di errore più descrittivo per il debug dell'utente
+      if (err.message?.includes("API_KEY_MISSING")) {
+        setError("CHIAVE API MANCANTE: Configurala nel pannello Cloudflare.");
+      } else {
+        setError(err.message || "Errore sincronizzazione Oracle. Verifica la connessione.");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handlePlayBet = (prediction: Prediction) => {
-    const stakeInput = prompt(`Inserisci l'importo da puntare per: ${prediction.match.homeTeam} vs ${prediction.match.awayTeam}`, "10");
+    const stakeInput = prompt(`Importo da puntare per: ${prediction.match.homeTeam} vs ${prediction.match.awayTeam}`, "10");
     const stake = parseFloat(stakeInput || "0");
     if (isNaN(stake) || stake <= 0) return;
 
@@ -87,11 +91,11 @@ const App: React.FC = () => {
     };
 
     setHistory(prev => [newBet, ...prev]);
-    alert("Scommessa salvata in Cronologia!");
+    alert("Scommessa salvata!");
   };
 
   const handlePlayCombo = (combo: ComboTip) => {
-    const stakeInput = prompt(`Inserisci l'importo da puntare per la combo: ${combo.title}`, "10");
+    const stakeInput = prompt(`Importo da puntare per la combo: ${combo.title}`, "10");
     const stake = parseFloat(stakeInput || "0");
     if (isNaN(stake) || stake <= 0) return;
 
@@ -106,7 +110,7 @@ const App: React.FC = () => {
     };
 
     setHistory(prev => [newBet, ...prev]);
-    alert("Combo salvata in Cronologia!");
+    alert("Combo salvata!");
   };
 
   const handleGenerateLuckyTip = async () => {
@@ -115,10 +119,8 @@ const App: React.FC = () => {
     try {
       const lucky = await bettingService.generateOracleSurprise(schedina.predictions);
       setRandomCombo(lucky);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      console.error("Errore Lucky Tip", err);
-      alert("L'Oracolo è temporaneamente instabile. Riprova tra poco.");
+      alert("L'Oracolo è instabile. Riprova.");
     } finally {
       setLoadingRandom(false);
     }
@@ -143,27 +145,22 @@ const App: React.FC = () => {
   if (!isAuthorized) return <AccessPage onAccessGranted={() => setIsAuthorized(true)} />;
 
   return (
-    <div className="min-h-screen max-w-lg mx-auto bg-[#050607] pb-32 relative animate-fadeIn overflow-x-hidden">
+    <div className="min-h-screen max-w-lg mx-auto bg-[#050607] pb-32 relative animate-fadeIn">
       <IOSInstallGuide />
       
       <header className="sticky top-0 z-50 glass-morphism p-6 flex justify-between items-center border-b border-[#00FF66]/10 pt-[calc(env(safe-area-inset-top)+1rem)]">
         <div>
           <h1 className="text-2xl font-black text-white tracking-tighter neon-text italic">NEOTIP</h1>
-          <div className="flex items-center gap-2">
-            <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest font-mono">Neural multi-sport hub</p>
-            {schedina?.lastUpdated && !loading && (
-              <span className="text-[7px] text-[#00FF66]/70 font-mono animate-pulse uppercase tracking-tighter">LIVE_SYNC: {schedina.lastUpdated}</span>
-            )}
-          </div>
+          <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest font-mono">Neural multi-sport hub</p>
         </div>
-        <button onClick={loadData} className="p-2.5 bg-[#00FF66]/10 border border-[#00FF66]/20 rounded-xl text-[#00FF66] active:scale-95 transition-all shadow-[0_0_15px_rgba(0,255,102,0.1)]">
+        <button onClick={loadData} className="p-2.5 bg-[#00FF66]/10 border border-[#00FF66]/20 rounded-xl text-[#00FF66]">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={loading ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
         </button>
       </header>
 
       {activeView === 'home' && (
-        <div className="px-4 pt-4 pb-2 space-y-5 sticky top-[95px] z-40 bg-[#050607]/90 backdrop-blur-xl border-b border-white/5">
-          <div className="flex bg-[#0a0c0e] p-1.5 rounded-2xl border border-white/5 shadow-inner">
+        <div className="px-4 pt-4 pb-2 space-y-5 sticky top-[95px] z-40 bg-[#050607]/90 backdrop-blur-xl">
+          <div className="flex bg-[#0a0c0e] p-1.5 rounded-2xl border border-white/5">
             {[
               { id: 'Today', label: `OGGI • ${dates.today}` },
               { id: 'Tomorrow', label: `DOMANI • ${dates.tomorrow}` }
@@ -171,39 +168,31 @@ const App: React.FC = () => {
               <button 
                 key={day.id}
                 onClick={() => setSelectedDay(day.id as any)}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-500 ${selectedDay === day.id ? 'bg-[#00FF66] text-[#050607] shadow-[0_0_20px_rgba(0,255,102,0.4)]' : 'text-slate-500 hover:text-slate-300'}`}
+                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedDay === day.id ? 'bg-[#00FF66] text-[#050607]' : 'text-slate-500'}`}
               >
                 {day.label}
               </button>
             ))}
           </div>
 
-          <div className="flex gap-2.5 overflow-x-auto no-scrollbar pb-1 px-1">
-            {[
-              { id: 'All', label: 'Tutti', icon: '🌐' },
-              { id: 'Football', label: 'Calcio', icon: '⚽' },
-              { id: 'Basketball', label: 'Basket', icon: '🏀' },
-              { id: 'Tennis', label: 'Tennis', icon: '🎾' },
-              { id: 'Volley', label: 'Volley', icon: '🏐' }
-            ].map((sport) => (
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+            {['All', 'Football', 'Basketball', 'Tennis', 'Volley'].map((sport) => (
               <button 
-                key={sport.id}
-                onClick={() => setSelectedSport(sport.id as any)}
-                className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase tracking-[0.15em] border transition-all flex items-center gap-2.5 flex-shrink-0 active:scale-95 ${selectedSport === sport.id ? 'border-[#00FF66] text-[#00FF66] bg-[#00FF66]/15 shadow-[0_0_15px_rgba(0,255,102,0.05)]' : 'border-white/10 text-slate-500 bg-white/5 hover:border-white/20'}`}
+                key={sport}
+                onClick={() => setSelectedSport(sport as any)}
+                className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase border transition-all flex-shrink-0 ${selectedSport === sport ? 'border-[#00FF66] text-[#00FF66] bg-[#00FF66]/15' : 'border-white/10 text-slate-500 bg-white/5'}`}
               >
-                <span className="text-sm drop-shadow-md">{sport.icon}</span>
-                <span>{sport.label}</span>
+                {sport}
               </button>
             ))}
           </div>
 
           <button 
             onClick={handleGenerateLuckyTip}
-            disabled={loading || loadingRandom || (schedina?.predictions?.length || 0) < 3}
-            className="w-full bg-[#00FF66]/5 border border-[#00FF66]/40 hover:bg-[#00FF66]/10 rounded-2xl py-3 flex items-center justify-center gap-3 transition-all active:scale-95 group disabled:opacity-30"
+            disabled={loading || loadingRandom}
+            className="w-full bg-[#00FF66]/5 border border-[#00FF66]/40 rounded-2xl py-3 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-30"
           >
-            <span className={`text-xl group-hover:rotate-12 transition-transform ${loadingRandom ? 'animate-bounce' : ''}`}>🎲</span>
-            <span className="text-[10px] font-black text-[#00FF66] uppercase tracking-[0.2em]">Genera Combo Oracolo</span>
+            <span className="text-[10px] font-black text-[#00FF66] uppercase tracking-widest">Genera Combo Oracolo</span>
           </button>
         </div>
       )}
@@ -212,107 +201,43 @@ const App: React.FC = () => {
         {activeView === 'home' ? (
           loading ? (
              <div className="flex flex-col items-center justify-center py-40">
-                <div className="w-14 h-14 border-4 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-6 shadow-[0_0_20px_rgba(0,255,102,0.1)]"></div>
-                <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-[0.2em] animate-pulse">Scanning Neural Network...</p>
+                <div className="w-10 h-10 border-2 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-4"></div>
+                <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-widest animate-pulse">Syncing Matrix...</p>
              </div>
           ) : (
-            <div className="space-y-4 animate-fadeIn">
-              {randomCombo && !loadingRandom && (
-                <div className="relative p-6 rounded-[2.5rem] border-2 border-emerald-400/50 bg-emerald-500/5 shadow-[0_0_40px_rgba(16,185,129,0.1)] mb-8 animate-slideDown overflow-hidden group">
-                  <div className="absolute -top-4 -left-4 w-20 h-20 bg-emerald-500/10 rounded-full blur-3xl group-hover:bg-emerald-500/20 transition-all"></div>
-                  <div className="flex justify-between items-center mb-4 relative z-10">
-                    <h3 className="text-lg font-black text-white italic uppercase tracking-tighter leading-none">{randomCombo.title}</h3>
-                    <button onClick={() => setRandomCombo(null)} className="text-slate-500 hover:text-white transition-colors">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-                    </button>
-                  </div>
-                  <div className="space-y-3 mb-5 relative z-10">
-                    {randomCombo.predictions.map((p, i) => (
-                      <div key={i} className="flex justify-between text-[10px] font-mono text-slate-300 border-b border-white/5 pb-2">
-                        <span className="truncate max-w-[75%]">{p.event} <span className="text-emerald-400 font-bold ml-1">[{p.bet}]</span></span>
-                        <span className="font-black text-white">@{p.odds.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between items-end relative z-10">
-                    <div>
-                      <p className="text-[8px] text-slate-500 uppercase font-mono tracking-widest mb-1">Total Odds Surprise</p>
-                      <p className="text-3xl font-black text-emerald-400 tracking-tighter">@{randomCombo.totalOdds.toFixed(2)}</p>
-                    </div>
-                    <button 
-                      onClick={() => handlePlayCombo(randomCombo)}
-                      className="px-6 py-3 bg-emerald-500 text-white rounded-xl text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all"
-                    >
-                      Salva
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {loadingRandom && (
-                <div className="p-8 rounded-[2.5rem] border-2 border-emerald-400/20 bg-emerald-500/5 flex flex-col items-center justify-center mb-8 animate-pulse">
-                   <div className="text-2xl mb-2 animate-spin">🔮</div>
-                   <p className="text-[10px] text-emerald-400 font-mono uppercase tracking-widest font-black">Interrogando l'Oracolo...</p>
-                </div>
-              )}
-
+            <div className="space-y-4">
               {error && (
                 <div className="p-8 glass-morphism rounded-3xl border border-red-500/30 text-center">
-                  <p className="text-red-400 font-mono text-xs uppercase mb-4">{error}</p>
+                  <p className="text-red-400 font-mono text-[10px] uppercase mb-4 leading-relaxed">{error}</p>
                   <button onClick={loadData} className="px-6 py-2 bg-red-500/20 text-red-400 rounded-xl border border-red-500/40 text-[10px] font-black uppercase">Riprova Sync</button>
                 </div>
               )}
 
-              {filteredPredictions.length > 0 ? (
-                filteredPredictions.map((p, idx) => (
-                  <MatchCard key={idx} prediction={p} onPlay={handlePlayBet} />
-                ))
-              ) : !loading && !error && (
-                <div className="flex flex-col items-center justify-center py-32 text-center">
-                  <div className="w-20 h-20 bg-white/5 rounded-[2rem] flex items-center justify-center mb-6 border border-white/10 shadow-xl">
-                    <span className="text-3xl grayscale opacity-30">📡</span>
-                  </div>
-                  <h3 className="text-white font-black text-sm uppercase italic tracking-widest">Nessun Segnale</h3>
-                  <p className="text-slate-500 font-mono text-[9px] uppercase tracking-[0.25em] mt-2 max-w-[200px] leading-relaxed">Nessun match rilevato per i parametri selezionati</p>
-                </div>
-              )}
+              {filteredPredictions.map((p, idx) => (
+                <MatchCard key={idx} prediction={p} onPlay={handlePlayBet} />
+              ))}
             </div>
           )
         ) : activeView === 'combos' ? (
-          <div className="space-y-8 animate-fadeIn">
-            <div className="px-2">
-              <h2 className="text-white font-black uppercase tracking-tighter text-3xl italic">Neural Combos</h2>
-              <p className="text-[10px] text-slate-500 font-mono uppercase tracking-[0.3em] mt-1">Sistemi multi-sport sincronizzati</p>
-            </div>
-            {schedina?.dailyCombos.map((combo, idx) => (
-              <div key={idx} className={`glass-morphism p-9 rounded-[3.5rem] border-2 relative overflow-hidden transition-all hover:scale-[1.01] active:scale-[0.99] ${combo.type === 'Safe' ? 'border-[#00FF66]/30 shadow-[0_0_40px_rgba(0,255,102,0.08)]' : 'border-purple-500/30 shadow-[0_0_40px_rgba(168,85,247,0.08)]'}`}>
-                {combo.type === 'HighRisk' && <div className="absolute top-0 right-0 bg-purple-600 text-white px-6 py-2 rounded-bl-[2rem] text-[9px] font-black uppercase tracking-widest shadow-lg">PROTOCOL_X</div>}
-                <h3 className="text-2xl font-black text-white italic mb-6 pr-12 leading-tight">{combo.title}</h3>
-                <div className="space-y-5 mb-8">
-                  {combo.predictions.map((p, i) => (
-                    <div key={i} className="flex justify-between items-center border-b border-white/5 pb-3">
-                      <div className="flex flex-col max-w-[70%]">
-                        <span className="text-[9px] text-slate-500 font-mono uppercase font-black tracking-tighter truncate">{p.event || 'Evento Ignoto'}</span>
-                        <span className="text-[11px] text-slate-300 font-mono font-medium truncate">{p.bet}</span>
-                      </div>
-                      <span className="text-[#00FF66] font-black bg-[#00FF66]/5 px-2 py-1 rounded-lg text-[11px] font-mono">@{p.odds.toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex justify-between items-end border-t border-white/10 pt-6">
-                  <div>
-                    <p className="text-[9px] text-slate-500 uppercase font-mono tracking-[0.2em] mb-1.5">Quota Totale</p>
-                    <p className={`text-4xl font-black font-poppins tracking-tighter ${combo.type === 'Safe' ? 'text-[#00FF66]' : 'text-purple-400'}`}>@{combo.totalOdds.toFixed(2)}</p>
-                  </div>
-                  <button 
-                    onClick={() => handlePlayCombo(combo)}
-                    className="px-7 py-4 bg-[#00FF66] text-[#050607] rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all active:scale-90 shadow-sm"
-                  >
-                    Gioca Combo
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="space-y-6">
+             <h2 className="text-white font-black uppercase text-2xl italic px-2">Neural Combos</h2>
+             {schedina?.dailyCombos.map((combo, idx) => (
+               <div key={idx} className="glass-morphism p-8 rounded-[2.5rem] border border-[#00FF66]/20">
+                 <h3 className="text-xl font-black text-white mb-4 italic">{combo.title}</h3>
+                 <div className="space-y-3 mb-6">
+                   {combo.predictions.map((p, i) => (
+                     <div key={i} className="flex justify-between text-[11px] text-slate-400 border-b border-white/5 pb-2">
+                       <span>{p.event}</span>
+                       <span className="text-[#00FF66] font-bold">@{p.odds.toFixed(2)}</span>
+                     </div>
+                   ))}
+                 </div>
+                 <div className="flex justify-between items-center">
+                   <p className="text-2xl font-black text-[#00FF66]">@{combo.totalOdds.toFixed(2)}</p>
+                   <button onClick={() => handlePlayCombo(combo)} className="px-6 py-3 bg-[#00FF66] text-[#050607] rounded-xl text-[10px] font-black uppercase">Gioca</button>
+                 </div>
+               </div>
+             ))}
           </div>
         ) : activeView === 'history' ? (
           <HistorySection 
@@ -321,31 +246,26 @@ const App: React.FC = () => {
             onUpdateStatus={(id, s) => setHistory(h => h.map(x => x.id === id ? {...x, status: s} : x))} 
           />
         ) : (
-          <div className="p-8 text-center animate-fadeIn pb-32">
-             <div className="w-24 h-24 bg-[#00FF66]/5 rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 border border-[#00FF66]/20 shadow-[0_0_30px_rgba(0,255,102,0.1)]">
-                <span className="text-4xl grayscale">👤</span>
-             </div>
-             <p className="text-slate-500 uppercase font-mono text-[10px] tracking-[0.3em]">Neural Identity Profile</p>
-             <p className="text-white font-black mt-3 text-lg italic uppercase tracking-tighter">Premium Access Enabled</p>
-             <p className="text-[9px] text-slate-600 font-mono mt-1 uppercase tracking-widest">v4.2.5 Mobile Native Build</p>
+          <div className="p-8 text-center">
+             <p className="text-slate-500 font-mono text-[10px] tracking-widest uppercase">Premium Access Enabled</p>
           </div>
         )}
       </main>
 
       <ChatBot />
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto glass-morphism border-t border-[#00FF66]/15 p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex justify-around items-center z-50 rounded-t-[3rem] shadow-[0_-15px_40px_rgba(0,0,0,0.9)]">
-        <button onClick={() => setActiveView('home')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeView === 'home' ? 'text-[#00FF66] scale-110 drop-shadow-[0_0_10px_#00FF66]' : 'text-slate-600 opacity-60 hover:opacity-100'}`}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-          <span className="text-[9px] font-black uppercase tracking-tighter">Events</span>
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto glass-morphism border-t border-[#00FF66]/15 p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex justify-around items-center z-50 rounded-t-[2.5rem]">
+        <button onClick={() => setActiveView('home')} className={`flex flex-col items-center gap-1 ${activeView === 'home' ? 'text-[#00FF66]' : 'text-slate-600'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          <span className="text-[8px] font-black uppercase">Events</span>
         </button>
-        <button onClick={() => setActiveView('combos')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeView === 'combos' ? 'text-[#00FF66] scale-110 drop-shadow-[0_0_10px_#00FF66]' : 'text-slate-600 opacity-60 hover:opacity-100'}`}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/><path d="m17 7 5 5-5 5M7 17l-5-5 5-5"/></svg>
-          <span className="text-[9px] font-black uppercase tracking-tighter">Combos</span>
+        <button onClick={() => setActiveView('combos')} className={`flex flex-col items-center gap-1 ${activeView === 'combos' ? 'text-[#00FF66]' : 'text-slate-600'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M2 12h20"/><path d="m17 7 5 5-5 5M7 17l-5-5 5-5"/></svg>
+          <span className="text-[8px] font-black uppercase">Combos</span>
         </button>
-        <button onClick={() => setActiveView('history')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 ${activeView === 'history' ? 'text-[#00FF66] scale-110 drop-shadow-[0_0_10px_#00FF66]' : 'text-slate-600 opacity-60 hover:opacity-100'}`}>
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"/><path d="m9 12 2 2 4-4"/></svg>
-          <span className="text-[9px] font-black uppercase tracking-tighter">History</span>
+        <button onClick={() => setActiveView('history')} className={`flex flex-col items-center gap-1 ${activeView === 'history' ? 'text-[#00FF66]' : 'text-slate-600'}`}>
+          <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span className="text-[8px] font-black uppercase">History</span>
         </button>
       </nav>
     </div>

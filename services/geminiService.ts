@@ -3,22 +3,31 @@ import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private getAiInstance(): GoogleGenAI {
+    // Nota: process.env.API_KEY viene iniettato da Vite durante il build
     const apiKey = process.env.API_KEY;
-    if (!apiKey) {
-      throw new Error("API_KEY non configurata. Assicurarsi che la variabile d'ambiente sia presente.");
+    if (!apiKey || apiKey === "undefined" || apiKey === "") {
+      throw new Error("API_KEY_MISSING: La chiave API non è configurata nelle variabili d'ambiente di Cloudflare.");
     }
     return new GoogleGenAI({ apiKey });
   }
 
   private cleanJsonString(text: string | undefined): string {
     if (!text) return "{}";
-    // Rimuove eventuali blocchi di codice Markdown generati dal modello
-    return text.replace(/```json/g, "").replace(/```/g, "").trim();
+    // Rimuove blocchi markdown e pulisce whitespace
+    let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    // A volte Gemini aggiunge testo prima o dopo il JSON, cerchiamo di estrarre solo l'oggetto/array
+    const start = cleaned.indexOf('{');
+    const end = cleaned.lastIndexOf('}');
+    if (start !== -1 && end !== -1) {
+      cleaned = cleaned.substring(start, end + 1);
+    }
+    return cleaned;
   }
 
   async generateDailySchedina(): Promise<Schedina> {
     try {
       const ai = this.getAiInstance();
+      // Usiamo gemini-3-flash-preview come da linee guida per task di testo
       const modelName = 'gemini-3-flash-preview';
       const now = new Date();
       
@@ -26,11 +35,8 @@ export class BettingService {
       const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
       const prompt = `DATA ATTUALE: ${todayStr} - ORE: ${timeStr} (Fuso Orario: Europe/Rome).
-      Sei NeoTip Oracle, un esperto di analisi predittiva sportiva. 
-      Genera analisi per match che iniziano DOPO le ${timeStr} di oggi o domani.
-      Discipline: Football, Basketball, Tennis, Volley.
-      Usa quote reali e informazioni aggiornate tramite Google Search. 
-      Ritorna i dati strettamente in formato JSON secondo lo schema definito.`;
+      Sei NeoTip Oracle. Genera analisi scommesse per oggi o domani.
+      Usa Google Search per dati reali. Ritorna JSON puro.`;
 
       const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
@@ -54,8 +60,7 @@ export class BettingService {
                         league: { type: Type.STRING },
                         time: { type: Type.STRING },
                         date: { type: Type.STRING },
-                        sport: { type: Type.STRING },
-                        imageUrl: { type: Type.STRING }
+                        sport: { type: Type.STRING }
                       },
                       required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"],
                     },
@@ -67,10 +72,7 @@ export class BettingService {
                     statistics: {
                       type: Type.OBJECT,
                       properties: {
-                        recentForm: { type: Type.STRING },
-                        h2h: { type: Type.STRING },
-                        avgGoals: { type: Type.STRING },
-                        pointsPerGame: { type: Type.STRING }
+                        recentForm: { type: Type.STRING }
                       },
                       required: ["recentForm"],
                     },
@@ -96,7 +98,6 @@ export class BettingService {
                       } 
                     },
                     totalOdds: { type: Type.NUMBER },
-                    reasoning: { type: Type.STRING },
                   },
                 },
               },
@@ -106,18 +107,23 @@ export class BettingService {
         },
       });
 
-      const rawText = response.text;
-      if (!rawText) {
-        throw new Error("L'oracolo non ha risposto. Riprova più tardi.");
+      if (!response.text) {
+        throw new Error("L'IA ha restituito una risposta vuota.");
       }
       
-      const responseText = this.cleanJsonString(rawText);
-      const data = JSON.parse(responseText) as Schedina;
+      const responseText = this.cleanJsonString(response.text);
+      let data: Schedina;
+      try {
+        data = JSON.parse(responseText) as Schedina;
+      } catch (e) {
+        console.error("Errore parsing JSON IA:", responseText);
+        throw new Error("Errore nel formato dati ricevuto dall'IA.");
+      }
       
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || chunk.maps?.title || "Fonte Analisi",
-        uri: chunk.web?.uri || chunk.maps?.uri || ""
+        title: chunk.web?.title || "Fonte Web",
+        uri: chunk.web?.uri || ""
       })).filter((s: GroundingSource) => s.uri !== "");
       
       return { 
@@ -126,7 +132,7 @@ export class BettingService {
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (error: any) {
-      console.error("BettingService - generateDailySchedina Error:", error);
+      console.error("BettingService Error Details:", error);
       throw error;
     }
   }
@@ -134,71 +140,15 @@ export class BettingService {
   async generateOracleSurprise(availablePredictions: Prediction[]): Promise<ComboTip> {
     const ai = this.getAiInstance();
     const modelName = 'gemini-3-flash-preview';
-    const matchData = availablePredictions.slice(0, 15).map(p => ({
-      event: `${p.match.homeTeam} vs ${p.match.awayTeam}`,
-      sport: p.match.sport,
-      odds: p.odds,
-      bet: p.bet
-    }));
+    const prompt = `Crea una combo scommesse sorpresa dai dati: ${JSON.stringify(availablePredictions.slice(0, 5))}`;
 
-    const prompt = `Sei l'Oracolo di NeoTip. Basandoti su questi dati: ${JSON.stringify(matchData)}, genera una combo "SURPRISE" ad alto potenziale (3 eventi). Fornisci ragionamenti in stile Matrix.`;
-
-    const response: GenerateContentResponse = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: modelName,
       contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            predictions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  event: { type: Type.STRING },
-                  bet: { type: Type.STRING },
-                  odds: { type: Type.NUMBER }
-                }
-              }
-            },
-            totalOdds: { type: Type.NUMBER },
-            reasoning: { type: Type.STRING }
-          }
-        }
-      }
+      config: { responseMimeType: "application/json" }
     });
 
-    const rawText = response.text;
-    if (!rawText) throw new Error("Errore generazione combo.");
-    return JSON.parse(this.cleanJsonString(rawText)) as ComboTip;
-  }
-
-  async getNearbyBettingShops(lat: number, lng: number): Promise<{text: string, sources: GroundingSource[]}> {
-    const ai = this.getAiInstance();
-    const model = "gemini-2.5-flash-lite-latest";
-    
-    const response: GenerateContentResponse = await ai.models.generateContent({
-      model: model,
-      contents: "Identifica i centri scommesse più vicini alla mia posizione corrente (SNAI, Goldbet, Eurobet, etc.) e fornisci indicazioni.",
-      config: {
-        tools: [{ googleMaps: {} }],
-        toolConfig: {
-          retrievalConfig: {
-            latLng: { latitude: lat, longitude: lng }
-          }
-        }
-      },
-    });
-
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-      title: chunk.maps?.title || "Centro Scommesse",
-      uri: chunk.maps?.uri || ""
-    })).filter((s: GroundingSource) => s.uri !== "");
-
-    return { text: response.text || "Nessun centro scommesse rilevato.", sources };
+    return JSON.parse(this.cleanJsonString(response.text)) as ComboTip;
   }
 
   createChatSession(lat?: number, lng?: number): Chat {
@@ -206,15 +156,8 @@ export class BettingService {
     return ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con un tono tecnico, futuristico e professionale. Aiuta l'utente con analisi scommesse e trova centri fisici tramite Google Maps se richiesto. Mostra sempre le fonti dei dati.",
-        tools: [{ googleSearch: {} }, { googleMaps: {} }],
-        ...(lat !== undefined && lng !== undefined ? {
-          toolConfig: {
-            retrievalConfig: {
-              latLng: { latitude: lat, longitude: lng }
-            }
-          }
-        } : {})
+        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano. Aiuta l'utente con analisi scommesse.",
+        tools: [{ googleSearch: {} }]
       },
     });
   }
