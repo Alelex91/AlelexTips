@@ -8,7 +8,13 @@
       "src": "https://img.icons8.com/neon/512/matrix.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://img.icons8.com/neon/512/matrix.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "https://img.icons8.com/neon/192/matrix.png",
@@ -18,6 +24,7 @@
   ],
   "start_url": "./index.html",
   "display": "standalone",
+  "display_override": ["window-controls-overlay"],
   "orientation": "portrait",
   "theme_color": "#050607",
   "background_color": "#050607",

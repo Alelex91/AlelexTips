@@ -96,7 +96,8 @@ export class BettingService {
         },
       });
 
-      const data = JSON.parse(result.text.trim()) as Schedina;
+      const responseText = result.text || "{}";
+      const data = JSON.parse(responseText.trim()) as Schedina;
       const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
       const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
         title: chunk.web?.title || chunk.maps?.title || "Fonte",
@@ -149,7 +150,8 @@ export class BettingService {
       }
     });
 
-    return JSON.parse(result.text.trim()) as ComboTip;
+    const responseText = result.text || "{}";
+    return JSON.parse(responseText.trim()) as ComboTip;
   }
 
   async getNearbyBettingShops(lat: number, lng: number): Promise<{text: string, sources: GroundingSource[]}> {
@@ -174,7 +176,7 @@ export class BettingService {
       uri: chunk.maps?.uri || ""
     })).filter((s: any) => s.uri) || [];
 
-    return { text: response.text, sources };
+    return { text: response.text || "Nessun centro scommesse trovato nelle vicinanze.", sources };
   }
 
   createChatSession(lat?: number, lng?: number): Chat {
