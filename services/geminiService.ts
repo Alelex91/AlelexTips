@@ -7,6 +7,7 @@ export class BettingService {
   }
 
   private cleanJsonString(text: string): string {
+    // Rimuove blocchi di codice markdown se presenti
     return text.replace(/```json/g, "").replace(/```/g, "").trim();
   }
 
@@ -25,7 +26,7 @@ export class BettingService {
       Includi statistiche avanzate: H2H, Forma, Media Gol/Punti.
       Usa quote reali tramite Google Search.`;
 
-      const result: GenerateContentResponse = await ai.models.generateContent({
+      const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
         contents: prompt,
         config: {
@@ -99,12 +100,15 @@ export class BettingService {
         },
       });
 
-      const responseText = result.text ? this.cleanJsonString(result.text) : "{}";
+      const text = response.text;
+      if (!text) throw new Error("L'AI non ha restituito testo.");
+      
+      const responseText = this.cleanJsonString(text);
       const data = JSON.parse(responseText) as Schedina;
       
-      const chunks = result.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
       const sources: GroundingSource[] = chunks?.map((chunk: any) => ({
-        title: chunk.web?.title || chunk.maps?.title || "Fonte",
+        title: chunk.web?.title || chunk.maps?.title || "Fonte Oracle",
         uri: chunk.web?.uri || chunk.maps?.uri || ""
       })).filter((s: any) => s.uri !== "") || [];
       
@@ -122,16 +126,16 @@ export class BettingService {
   async generateOracleSurprise(availablePredictions: Prediction[]): Promise<ComboTip> {
     const ai = this.getAiInstance();
     const modelName = 'gemini-3-flash-preview';
-    const matchData = availablePredictions.map(p => ({
+    const matchData = availablePredictions.slice(0, 15).map(p => ({
       event: `${p.match.homeTeam} vs ${p.match.awayTeam}`,
       sport: p.match.sport,
       odds: p.odds,
       bet: p.bet
     }));
 
-    const prompt = `Crea una combo "SORPRESA" da 3 eventi basata su questi dati: ${JSON.stringify(matchData.slice(0, 15))}. Stile Matrix.`;
+    const prompt = `Crea una combo "SORPRESA" da 3 eventi basata su questi dati: ${JSON.stringify(matchData)}. Stile Matrix.`;
 
-    const result = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: modelName,
       contents: prompt,
       config: {
@@ -158,8 +162,9 @@ export class BettingService {
       }
     });
 
-    const responseText = result.text ? this.cleanJsonString(result.text) : "{}";
-    return JSON.parse(responseText) as ComboTip;
+    const text = response.text;
+    if (!text) throw new Error("Errore generazione sorpresa.");
+    return JSON.parse(this.cleanJsonString(text)) as ComboTip;
   }
 
   async getNearbyBettingShops(lat: number, lng: number): Promise<{text: string, sources: GroundingSource[]}> {
@@ -195,7 +200,7 @@ export class BettingService {
     return ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip AI Oracle. Aiuti gli utenti con analisi sportive e a trovare centri scommesse fisici se richiesto.",
+        systemInstruction: "Sei NeoTip AI Oracle. Aiuti gli utenti con analisi sportive e a trovare centri scommesse fisici se richiesto. Usa sempre i link di grounding se disponibili.",
         tools: [{ googleSearch: {} }, { googleMaps: {} }],
         ...(lat && lng ? {
           toolConfig: {
