@@ -2,16 +2,24 @@
 {
   "short_name": "NeoTip",
   "name": "NeoTip AI Betting Oracle",
+  "description": "Neural Betting Predictions & Sports Analysis",
   "icons": [
     {
       "src": "https://img.icons8.com/neon/512/matrix.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    },
+    {
+      "src": "https://img.icons8.com/neon/192/matrix.png",
+      "sizes": "192x192",
+      "type": "image/png"
     }
   ],
-  "start_url": ".",
+  "start_url": "./index.html",
   "display": "standalone",
+  "orientation": "portrait",
   "theme_color": "#050607",
-  "background_color": "#050607"
+  "background_color": "#050607",
+  "categories": ["sports", "lifestyle"]
 }

@@ -1,16 +1,22 @@
 
+export type SportType = 'Football' | 'Basketball' | 'Tennis' | 'Volley' | 'All';
+
 export interface Match {
   id: string;
   homeTeam: string;
   awayTeam: string;
   league: string;
   time: string;
+  date: string;
+  sport: SportType;
+  imageUrl?: string;
 }
 
 export interface MatchStats {
-  avgGoals: string;
+  avgGoals?: string;
   recentForm: string;
-  h2h: string;
+  h2h?: string;
+  pointsPerGame?: string;
 }
 
 export interface GroundingSource {
@@ -24,15 +30,25 @@ export interface Prediction {
   odds: number;
   confidence: number;
   reasoning: string;
-  marketType: 'Combo' | 'Corners' | 'Cards' | 'Classic' | 'Goal/NoGoal';
+  marketType: string;
   statistics: MatchStats;
+  event?: string; // Utilizzato nelle combo per il nome del match
+}
+
+export interface ComboTip {
+  title: string;
+  type: 'Safe' | 'HighRisk';
+  predictions: Prediction[];
+  totalOdds: number;
+  reasoning: string;
 }
 
 export interface Schedina {
   predictions: Prediction[];
+  dailyCombos: ComboTip[];
   totalOdds: number;
-  potentialWinnings: number;
   sources?: GroundingSource[];
+  lastUpdated?: string;
 }
 
 export type BetStatus = 'Pending' | 'Won' | 'Lost';
