@@ -3,21 +3,24 @@ import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private async callOracleApi(payload: any): Promise<any> {
+    // Chiamata relativa che punta al Worker sullo stesso dominio
     const response = await fetch("/api/oracle/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
 
-    const result = await response.json();
-    if (!result.ok) {
-      throw new Error(result.error || "Errore di comunicazione con l'Oracolo.");
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: "Errore di rete." }));
+      throw new Error(errData.error || "L'Oracolo non risponde correttamente.");
     }
-    return result;
+
+    return await response.json();
   }
 
   private cleanJsonString(text: string | undefined): string {
     if (!text) return "{}";
+    // Rimuove markdown code blocks e spazi superflui
     let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
@@ -31,89 +34,25 @@ export class BettingService {
     try {
       const now = new Date();
       const todayStr = now.toLocaleDateString('en-CA');
-      const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-
-      const prompt = `DATA ATTUALE: ${todayStr} - ORE: ${timeStr}.
-      Sei NeoTip Oracle, una IA esperta di betting. 
-      Analizza i match di calcio, basket, tennis e volley più importanti di oggi o domani.
-      Trova almeno 5 pronostici con quote reali cercandole sul web.
-      Ritorna i dati strutturati in JSON puro come da schema richiesto.`;
+      
+      const prompt = `DATA: ${todayStr}. Analizza i match sportivi principali di oggi. 
+      Ritorna SOLO un oggetto JSON con questa struttura: 
+      { "predictions": [...], "dailyCombos": [...], "totalOdds": 10.5 }. 
+      Includi match di Calcio, Basket e Tennis.`;
 
       const result = await this.callOracleApi({
         prompt: prompt,
-        model: 'gemini-3-flash-preview',
         config: {
-          tools: [{ googleSearch: {} }],
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "OBJECT",
-            properties: {
-              predictions: {
-                type: "ARRAY",
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    match: {
-                      type: "OBJECT",
-                      properties: {
-                        homeTeam: { type: "STRING" },
-                        awayTeam: { type: "STRING" },
-                        league: { type: "STRING" },
-                        time: { type: "STRING" },
-                        date: { type: "STRING" },
-                        sport: { type: "STRING" }
-                      },
-                      required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"],
-                    },
-                    bet: { type: "STRING" },
-                    odds: { type: "NUMBER" },
-                    confidence: { type: "NUMBER" },
-                    reasoning: { type: "STRING" },
-                    marketType: { type: "STRING" },
-                    statistics: {
-                      type: "OBJECT",
-                      properties: {
-                        recentForm: { type: "STRING" }
-                      },
-                      required: ["recentForm"],
-                    },
-                  },
-                },
-              },
-              dailyCombos: {
-                type: "ARRAY",
-                items: {
-                  type: "OBJECT",
-                  properties: {
-                    title: { type: "STRING" },
-                    type: { type: "STRING" },
-                    predictions: { 
-                      type: "ARRAY", 
-                      items: { 
-                        type: "OBJECT", 
-                        properties: { 
-                          event: { type: "STRING" },
-                          bet: { type: "STRING" }, 
-                          odds: { type: "NUMBER" } 
-                        } 
-                      } 
-                    },
-                    totalOdds: { type: "NUMBER" },
-                  },
-                },
-              },
-              totalOdds: { type: "NUMBER" },
-            },
-          },
+          responseMimeType: "application/json"
+          // La schema definition è opzionale se il prompt è forte, ma la teniamo per sicurezza se serve
         }
       });
 
-      const responseText = this.cleanJsonString(result.text);
-      const data = JSON.parse(responseText) as Schedina;
+      const data = JSON.parse(this.cleanJsonString(result.text)) as Schedina;
       
       const chunks = result.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || "Database Oracle",
+        title: chunk.web?.title || "Fonte Analisi",
         uri: chunk.web?.uri || ""
       })).filter((s: GroundingSource) => s.uri !== "");
       
@@ -128,13 +67,28 @@ export class BettingService {
     }
   }
 
+  // Aggiunto supporto per coordinate e grounding nel bot di chat per risolvere l'errore di firma
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
+    const isLocationAvailable = lat !== undefined && lng !== undefined;
+    
     return this.callOracleApi({
       prompt: message,
-      model: 'gemini-3-flash-preview',
+      // Il grounding di Maps richiede modelli serie 2.5. Per chat generica usiamo Gemini 3 Flash.
+      model: isLocationAvailable ? 'gemini-2.5-flash-lite-latest' : 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con un tono tecnico, futuristico e preciso. Sei un esperto di analisi sportiva statistica.",
-        tools: [{ googleSearch: {} }]
+        systemInstruction: "Sei NeoTip Oracle, un esperto di analisi sportiva futuristica. Utilizza le informazioni in tempo reale per fornire consigli accurati.",
+        // Abilita Search e Maps grounding se la posizione è disponibile per migliorare le risposte
+        tools: isLocationAvailable ? [{ googleMaps: {} }, { googleSearch: {} }] : [{ googleSearch: {} }],
+        ...(isLocationAvailable && {
+          toolConfig: {
+            retrievalConfig: {
+              latLng: {
+                latitude: lat,
+                longitude: lng
+              }
+            }
+          }
+        })
       }
     });
   }

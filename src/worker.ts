@@ -1,9 +1,6 @@
+
 import { GoogleGenAI } from "@google/genai";
 
-/**
- * Utilizziamo interfacce strutturali per evitare dipendenze dai tipi di Cloudflare
- * che potrebbero entrare in conflitto con il compilatore TypeScript del frontend.
- */
 interface Env {
   GEMINI_API_KEY: string;
   ASSETS: {
@@ -15,14 +12,17 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. API - Health Check
+    // 1. API Health Check
     if (url.pathname === "/api/health") {
       return new Response(JSON.stringify({ ok: true, status: "NeoTip Oracle Online" }), {
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*" 
+        },
       });
     }
 
-    // 2. API - Oracle Sync Proxy
+    // 2. Oracle Sync Proxy (Post per Gemini)
     if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
       try {
         const { prompt, model = "gemini-3-flash-preview", config = {} } = await request.json() as any;
@@ -30,7 +30,7 @@ export default {
         if (!env.GEMINI_API_KEY) {
           return new Response(JSON.stringify({ 
             ok: false, 
-            error: "Configurazione Server incompleta: GEMINI_API_KEY mancante." 
+            error: "Configurazione Server Errata: Chiave API mancante nei Secret di Cloudflare." 
           }), { 
             status: 500,
             headers: { "Content-Type": "application/json" }
@@ -49,7 +49,10 @@ export default {
           text: response.text,
           groundingMetadata: response.candidates?.[0]?.groundingMetadata 
         }), {
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*"
+          },
         });
 
       } catch (error: any) {
@@ -60,22 +63,17 @@ export default {
       }
     }
 
-    // 3. Static Assets & SPA Fallback
-    // wrangler.toml run_worker_first = ["/api/*"] assicura che arriviamo qui 
-    // solo per rotte non gestite sopra.
+    // 3. Servizio Asset Statici (Vite)
+    // Se non è una rotta API, prova a servire il file statico o la index.html
     try {
       const assetResponse = await env.ASSETS.fetch(request);
-      
-      // Se l'asset non esiste (404), il binding ASSETS con 
-      // not_found_handling = "single-page-application" restituirà comunque la index.html
-      // se configurato correttamente, ma aggiungiamo un controllo esplicito per sicurezza.
       if (assetResponse.status === 404) {
+        // Fallback SPA per rotte React tipo /history o /combos
         return await env.ASSETS.fetch(new Request(new URL("/", request.url)));
       }
-      
       return assetResponse;
     } catch (e) {
-      return new Response("Internal Server Error during asset fetch", { status: 500 });
+      return new Response("Asset fetch error", { status: 500 });
     }
   },
 };

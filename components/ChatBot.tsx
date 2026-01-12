@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BettingService } from '../services/geminiService';
 
 const ChatBot: React.FC = () => {
@@ -9,7 +9,24 @@ const ChatBot: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const bettingService = new BettingService();
+  
+  // Memorizzazione del servizio per evitare re-inizializzazioni superflue
+  const bettingService = useMemo(() => new BettingService(), []);
+
+  // Recupero della posizione per il grounding (Google Maps) all'avvio del componente
+  useEffect(() => {
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => console.log("Geolocation usage skipped:", error.message)
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -23,6 +40,7 @@ const ChatBot: React.FC = () => {
     setIsTyping(true);
 
     try {
+      // Passaggio della posizione opzionale per abilitare il grounding geografico e risolvere l'errore TypeScript
       const response = await bettingService.sendMessageToChat(userMessage, location?.lat, location?.lng);
       
       setMessages(prev => [...prev, { 
