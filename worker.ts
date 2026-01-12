@@ -9,23 +9,31 @@ interface Env {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
 
-    // 1. Endpoint di Health Check
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
     if (url.pathname === "/api/health") {
       return new Response(JSON.stringify({ ok: true, status: "Matrix Online" }), {
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...corsHeaders },
       });
     }
 
-    // 2. Endpoint Oracle Sync (Proxy AI)
     if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
       try {
-        const { prompt, model = "gemini-3-flash-preview", config = {} } = await request.json() as any;
+        const body = await request.json() as any;
+        const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
 
         if (!env.GEMINI_API_KEY) {
-          return new Response(JSON.stringify({ ok: false, error: "GEMINI_API_KEY non configurata sul server." }), { 
+          return new Response(JSON.stringify({ ok: false, error: "CHIAVE API NON TROVATA: Assicurati di aver aggiunto GEMINI_API_KEY nei Secret di Cloudflare." }), { 
             status: 500,
-            headers: { "Content-Type": "application/json" }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
 
@@ -36,32 +44,32 @@ export default {
           config: config
         });
 
+        if (!response.text) {
+          throw new Error("L'IA ha restituito una risposta vuota.");
+        }
+
         return new Response(JSON.stringify({ 
           ok: true, 
           text: response.text,
           groundingMetadata: response.candidates?.[0]?.groundingMetadata 
         }), {
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...corsHeaders },
         });
 
       } catch (error: any) {
-        return new Response(JSON.stringify({ ok: false, error: error.message }), { 
+        console.error("Oracle Sync Worker Error:", error.message);
+        return new Response(JSON.stringify({ ok: false, error: "Errore Oracle: " + error.message }), { 
           status: 500,
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
     }
 
-    // 3. Serve gli asset statici (React App)
     try {
       let response = await env.ASSETS.fetch(request);
-      
-      // Gestione SPA: se il file non esiste (404), serve index.html
       if (response.status === 404) {
-        const indexRequest = new Request(new URL("/index.html", request.url));
-        return await env.ASSETS.fetch(indexRequest);
+        return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
       }
-      
       return response;
     } catch (e) {
       return new Response("Asset Not Found", { status: 404 });

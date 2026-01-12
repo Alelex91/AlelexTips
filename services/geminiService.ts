@@ -3,7 +3,7 @@ import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private async callOracleApi(payload: any): Promise<any> {
-    // Chiamata relativa che punta al Worker sullo stesso dominio
+    console.log("NEOTIP_LOG: Invio richiesta all'Oracle...", payload);
     const response = await fetch("/api/oracle/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -12,16 +12,22 @@ export class BettingService {
 
     if (!response.ok) {
       const errData = await response.json().catch(() => ({ error: "Errore di rete." }));
+      console.error("NEOTIP_LOG: Errore API Oracle:", errData);
       throw new Error(errData.error || "L'Oracolo non risponde correttamente.");
     }
 
-    return await response.json();
+    const data = await response.json();
+    console.log("NEOTIP_LOG: Risposta ricevuta dall'Oracle:", data);
+    return data;
   }
 
   private cleanJsonString(text: string | undefined): string {
     if (!text) return "{}";
-    // Rimuove markdown code blocks e spazi superflui
-    let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    let cleaned = text.trim();
+    // Rimuove blocchi di codice markdown se presenti
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```json/, '').replace(/```$/, '').trim();
+    }
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start !== -1 && end !== -1) {
@@ -33,26 +39,97 @@ export class BettingService {
   async generateDailySchedina(): Promise<Schedina> {
     try {
       const now = new Date();
-      const todayStr = now.toLocaleDateString('en-CA');
+      const todayStr = now.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' });
       
-      const prompt = `DATA: ${todayStr}. Analizza i match sportivi principali di oggi. 
-      Ritorna SOLO un oggetto JSON con questa struttura: 
-      { "predictions": [...], "dailyCombos": [...], "totalOdds": 10.5 }. 
-      Includi match di Calcio, Basket e Tennis.`;
+      const prompt = `DATA ATTUALE: ${todayStr}. 
+      Sei NeoTip, un'intelligenza artificiale esperta in scommesse sportive. 
+      CERCA MATCH REALI per OGGI e DOMANI (Calcio Serie A, Premier League, La Liga, Champions League, NBA, Tennis ATP).
+      Recupera quote aggiornate (es. 1.85, 2.10).
+      Genera analisi per almeno 8 match diversi.
+      FORMATO: JSON puro.`;
+
+      // Definizione dello schema per obbligare l'IA a rispettare i tipi di dati
+      const responseSchema = {
+        type: "OBJECT",
+        properties: {
+          predictions: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                match: {
+                  type: "OBJECT",
+                  properties: {
+                    id: { type: "STRING" },
+                    homeTeam: { type: "STRING" },
+                    awayTeam: { type: "STRING" },
+                    league: { type: "STRING" },
+                    time: { type: "STRING" },
+                    date: { type: "STRING" },
+                    sport: { type: "STRING" }
+                  },
+                  required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"]
+                },
+                bet: { type: "STRING" },
+                odds: { type: "NUMBER" },
+                confidence: { type: "NUMBER" },
+                reasoning: { type: "STRING" },
+                marketType: { type: "STRING" },
+                statistics: {
+                  type: "OBJECT",
+                  properties: {
+                    recentForm: { type: "STRING" },
+                    avgGoals: { type: "STRING" },
+                    h2h: { type: "STRING" }
+                  }
+                }
+              },
+              required: ["match", "bet", "odds", "confidence", "reasoning", "marketType"]
+            }
+          },
+          dailyCombos: {
+            type: "ARRAY",
+            items: {
+              type: "OBJECT",
+              properties: {
+                title: { type: "STRING" },
+                type: { type: "STRING" },
+                totalOdds: { type: "NUMBER" },
+                reasoning: { type: "STRING" },
+                predictions: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      event: { type: "STRING" },
+                      odds: { type: "NUMBER" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          totalOdds: { type: "NUMBER" }
+        },
+        required: ["predictions", "dailyCombos"]
+      };
 
       const result = await this.callOracleApi({
         prompt: prompt,
+        model: 'gemini-3-flash-preview',
         config: {
-          responseMimeType: "application/json"
-          // La schema definition è opzionale se il prompt è forte, ma la teniamo per sicurezza se serve
+          responseMimeType: "application/json",
+          responseSchema: responseSchema, // Forza il formato JSON strutturato
+          tools: [{ googleSearch: {} }]
         }
       });
 
-      const data = JSON.parse(this.cleanJsonString(result.text)) as Schedina;
+      const jsonContent = this.cleanJsonString(result.text);
+      const data = JSON.parse(jsonContent) as Schedina;
       
       const chunks = result.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || "Fonte Analisi",
+        title: chunk.web?.title || "Database Sportivo",
         uri: chunk.web?.uri || ""
       })).filter((s: GroundingSource) => s.uri !== "");
       
@@ -62,33 +139,18 @@ export class BettingService {
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (error: any) {
-      console.error("BettingService Error:", error);
+      console.error("BettingService Fatal Error:", error);
       throw error;
     }
   }
 
-  // Aggiunto supporto per coordinate e grounding nel bot di chat per risolvere l'errore di firma
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
-    const isLocationAvailable = lat !== undefined && lng !== undefined;
-    
     return this.callOracleApi({
       prompt: message,
-      // Il grounding di Maps richiede modelli serie 2.5. Per chat generica usiamo Gemini 3 Flash.
-      model: isLocationAvailable ? 'gemini-2.5-flash-lite-latest' : 'gemini-3-flash-preview',
+      model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Oracle, un esperto di analisi sportiva futuristica. Utilizza le informazioni in tempo reale per fornire consigli accurati.",
-        // Abilita Search e Maps grounding se la posizione è disponibile per migliorare le risposte
-        tools: isLocationAvailable ? [{ googleMaps: {} }, { googleSearch: {} }] : [{ googleSearch: {} }],
-        ...(isLocationAvailable && {
-          toolConfig: {
-            retrievalConfig: {
-              latLng: {
-                latitude: lat,
-                longitude: lng
-              }
-            }
-          }
-        })
+        systemInstruction: "Sei NeoTip Oracle. Rispondi in modo cyberpunk. Fornisci consigli reali usando Google Search.",
+        tools: [{ googleSearch: {} }]
       }
     });
   }

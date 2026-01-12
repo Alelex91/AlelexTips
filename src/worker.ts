@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 export interface Env {
@@ -11,7 +12,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Gestione API (Punto di accesso sicuro per il frontend)
+    // 1. Gestione API
     if (url.pathname.startsWith("/api/")) {
       
       if (url.pathname === "/api/health") {
@@ -25,11 +26,11 @@ export default {
           const body = await request.json() as any;
           const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
 
-          // La chiave viene letta dall'ambiente protetto di Cloudflare
           if (!env.GEMINI_API_KEY) {
-            return new Response(JSON.stringify({ error: "Configurazione Server Incompleta (API Key mancante)." }), { 
+            console.error("ERRORE: GEMINI_API_KEY non trovata.");
+            return new Response(JSON.stringify({ error: "Configurazione Server Incompleta: Manca la GEMINI_API_KEY nei Secret di Cloudflare." }), { 
               status: 500,
-              headers: { "Content-Type": "application/json" }
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
             });
           }
 
@@ -47,21 +48,27 @@ export default {
           }), {
             headers: { 
               "Content-Type": "application/json", 
-              "Access-Control-Allow-Origin": "*" // Abilita CORS se necessario per lo sviluppo
+              "Access-Control-Allow-Origin": "*"
             }
           });
         } catch (error: any) {
-          return new Response(JSON.stringify({ error: error.message }), { 
+          console.error("Worker API Error:", error.message);
+          return new Response(JSON.stringify({ error: "L'IA ha riscontrato un problema: " + error.message }), { 
             status: 500,
-            headers: { "Content-Type": "application/json" }
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
           });
         }
       }
     }
 
-    // 2. Servizio Asset Statici (Frontend)
+    // 2. Servizio Asset Statici
     try {
-      return await env.ASSETS.fetch(request);
+      const response = await env.ASSETS.fetch(request);
+      if (response.status === 404) {
+        // Supporto SPA (Single Page Application)
+        return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
+      }
+      return response;
     } catch (e) {
       return new Response("Errore nel caricamento degli asset di NeoTip.", { status: 500 });
     }
