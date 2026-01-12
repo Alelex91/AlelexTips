@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Prediction, SportType } from '../types';
 
 interface Props {
@@ -9,6 +9,16 @@ interface Props {
 
 const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
   const [showStats, setShowStats] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [animatedWidth, setAnimatedWidth] = useState(0);
+
+  // Animazione progressiva della barra di confidenza al caricamento o al cambio dati
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnimatedWidth(prediction.confidence);
+    }, 300); // Piccolo ritardo per far percepire l'animazione dopo il caricamento della card
+    return () => clearTimeout(timer);
+  }, [prediction.confidence]);
 
   const getSportIcon = (sport: SportType) => {
     switch (sport) {
@@ -34,6 +44,18 @@ const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
     if (type.toLowerCase().includes('combo')) return 'bg-purple-500/10 text-purple-400 border-purple-500/20';
     if (type.toLowerCase().includes('corner') || type.toLowerCase().includes('angoli')) return 'bg-blue-500/10 text-blue-400 border-blue-500/20';
     return 'bg-[#00FF66]/10 text-[#00FF66] border-[#00FF66]/20';
+  };
+
+  const handlePlayClick = () => {
+    if (isConfirming || !onPlay) return;
+    
+    setIsConfirming(true);
+    
+    // Simula un'onda di processamento neurale prima di aprire il prompt
+    setTimeout(() => {
+      onPlay(prediction);
+      setIsConfirming(false);
+    }, 600);
   };
 
   return (
@@ -97,17 +119,28 @@ const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
           
           {onPlay && (
             <button 
-              onClick={() => onPlay(prediction)}
-              className="px-6 py-2.5 bg-[#00FF66] text-[#050607] rounded-xl text-[10px] font-black uppercase tracking-widest shadow-[0_0_15px_rgba(0,255,102,0.3)] active:scale-95 transition-all"
+              onClick={handlePlayClick}
+              disabled={isConfirming}
+              className={`px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all duration-300 relative overflow-hidden flex items-center justify-center min-w-[120px]
+                ${isConfirming 
+                  ? 'bg-white text-black shadow-[0_0_30px_rgba(255,255,255,0.6)] scale-110' 
+                  : 'bg-[#00FF66] text-[#050607] shadow-[0_0_15px_rgba(0,255,102,0.3)] active:scale-95'
+                }`}
             >
-              Gioca Ora
+              <span className={`transition-opacity duration-200 ${isConfirming ? 'opacity-0' : 'opacity-100'}`}>
+                Gioca Ora
+              </span>
+              {isConfirming && (
+                <div className="absolute inset-0 flex items-center justify-center animate-pulse tracking-tighter text-[8px]">
+                  SYNCING...
+                </div>
+              )}
             </button>
           )}
         </div>
 
         {showStats && (
           <div className="mt-2 mb-6 space-y-4 animate-fadeIn font-mono">
-            {/* Recent Form (Dettaglio) */}
             <div className="bg-[#050607]/80 p-4 rounded-2xl border border-slate-800/50 shadow-inner">
               <div className="flex items-center gap-2 mb-2">
                  <div className="w-1.5 h-1.5 bg-[#00FF66] rounded-full"></div>
@@ -118,7 +151,6 @@ const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
               </p>
             </div>
 
-            {/* Griglia Statistiche Avanzate */}
             <div className="grid grid-cols-2 gap-3">
               {prediction.statistics?.h2h && (
                 <div className="bg-white/5 p-3 rounded-xl border border-white/5">
@@ -132,12 +164,6 @@ const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
                    <p className="text-[10px] text-[#00FF66] font-black">{prediction.statistics.avgGoals}</p>
                 </div>
               )}
-              {prediction.statistics?.pointsPerGame && (
-                <div className="bg-white/5 p-3 rounded-xl border border-white/5 col-span-2">
-                   <p className="text-[7px] text-slate-500 uppercase font-black mb-1">Punti per Partita (PPG)</p>
-                   <p className="text-[10px] text-slate-300">{prediction.statistics.pointsPerGame}</p>
-                </div>
-              )}
             </div>
           </div>
         )}
@@ -147,15 +173,21 @@ const MatchCard: React.FC<Props> = ({ prediction, onPlay }) => {
           {prediction.reasoning}
         </div>
         
+        {/* PROGRESS BAR ANIMATA */}
         <div className="mt-4 flex items-center gap-4 px-1">
-          <div className="h-2 flex-1 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-[1px]">
+          <div className="h-2 flex-1 bg-slate-900 rounded-full overflow-hidden border border-slate-800 p-[1px] relative">
             <div 
-              className="h-full bg-gradient-to-r from-emerald-600 to-[#00FF66] shadow-[0_0_15px_#00FF66] rounded-full transition-all duration-1000" 
-              style={{ width: `${prediction.confidence}%` }}
-            />
+              className="h-full bg-gradient-to-r from-emerald-600 to-[#00FF66] rounded-full transition-all duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)] relative overflow-hidden neural-bar-pulse" 
+              style={{ width: `${animatedWidth}%` }}
+            >
+              {/* Overlay Scanner Animato */}
+              <div className="absolute inset-0 neural-bar-shimmer h-full w-1/2"></div>
+            </div>
           </div>
           <div className="text-right min-w-[40px]">
-            <span className="text-[10px] font-black text-[#00FF66] font-mono tracking-tighter">{prediction.confidence}%</span>
+            <span className="text-[10px] font-black text-[#00FF66] font-mono tracking-tighter">
+              {Math.round(animatedWidth)}%
+            </span>
           </div>
         </div>
       </div>
