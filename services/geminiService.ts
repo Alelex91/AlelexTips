@@ -3,19 +3,21 @@ import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
   private getAiInstance(): GoogleGenAI {
-    // Nota: process.env.API_KEY viene iniettato da Vite durante il build
+    // In un'app Vite, process.env.API_KEY viene sostituito durante il BUILD.
+    // Se vedi "undefined" o il nome della variabile, significa che Cloudflare non l'ha trovata durante il build.
     const apiKey = process.env.API_KEY;
-    if (!apiKey || apiKey === "undefined" || apiKey === "") {
-      throw new Error("API_KEY_MISSING: La chiave API non è configurata nelle variabili d'ambiente di Cloudflare.");
+    
+    if (!apiKey || apiKey === "undefined" || apiKey === "" || apiKey.includes("process.env")) {
+      console.error("ERRORE: API_KEY mancante nel bundle.");
+      throw new Error("CHIAVE_MANCANTE: Vai su Cloudflare Pages -> Settings -> Environment Variables, aggiungi API_KEY (nelle variabili di BUILD) e rifai il Deploy.");
     }
+    
     return new GoogleGenAI({ apiKey });
   }
 
   private cleanJsonString(text: string | undefined): string {
     if (!text) return "{}";
-    // Rimuove blocchi markdown e pulisce whitespace
     let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
-    // A volte Gemini aggiunge testo prima o dopo il JSON, cerchiamo di estrarre solo l'oggetto/array
     const start = cleaned.indexOf('{');
     const end = cleaned.lastIndexOf('}');
     if (start !== -1 && end !== -1) {
@@ -27,16 +29,15 @@ export class BettingService {
   async generateDailySchedina(): Promise<Schedina> {
     try {
       const ai = this.getAiInstance();
-      // Usiamo gemini-3-flash-preview come da linee guida per task di testo
       const modelName = 'gemini-3-flash-preview';
       const now = new Date();
       
       const todayStr = now.toLocaleDateString('en-CA');
       const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
-      const prompt = `DATA ATTUALE: ${todayStr} - ORE: ${timeStr} (Fuso Orario: Europe/Rome).
-      Sei NeoTip Oracle. Genera analisi scommesse per oggi o domani.
-      Usa Google Search per dati reali. Ritorna JSON puro.`;
+      const prompt = `DATA ATTUALE: ${todayStr} - ORE: ${timeStr}.
+      Sei NeoTip Oracle. Genera 5 analisi scommesse per oggi o domani.
+      Usa Google Search per dati reali e quote. Ritorna JSON puro.`;
 
       const response: GenerateContentResponse = await ai.models.generateContent({
         model: modelName,
@@ -107,22 +108,14 @@ export class BettingService {
         },
       });
 
-      if (!response.text) {
-        throw new Error("L'IA ha restituito una risposta vuota.");
-      }
+      if (!response.text) throw new Error("Risposta IA vuota.");
       
       const responseText = this.cleanJsonString(response.text);
-      let data: Schedina;
-      try {
-        data = JSON.parse(responseText) as Schedina;
-      } catch (e) {
-        console.error("Errore parsing JSON IA:", responseText);
-        throw new Error("Errore nel formato dati ricevuto dall'IA.");
-      }
+      const data = JSON.parse(responseText) as Schedina;
       
       const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || "Fonte Web",
+        title: chunk.web?.title || "Fonte Oracle",
         uri: chunk.web?.uri || ""
       })).filter((s: GroundingSource) => s.uri !== "");
       
@@ -132,22 +125,18 @@ export class BettingService {
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (error: any) {
-      console.error("BettingService Error Details:", error);
+      console.error("BettingService Error:", error);
       throw error;
     }
   }
 
   async generateOracleSurprise(availablePredictions: Prediction[]): Promise<ComboTip> {
     const ai = this.getAiInstance();
-    const modelName = 'gemini-3-flash-preview';
-    const prompt = `Crea una combo scommesse sorpresa dai dati: ${JSON.stringify(availablePredictions.slice(0, 5))}`;
-
     const response = await ai.models.generateContent({
-      model: modelName,
-      contents: prompt,
+      model: 'gemini-3-flash-preview',
+      contents: `Genera combo sorpresa da: ${JSON.stringify(availablePredictions.slice(0, 5))}`,
       config: { responseMimeType: "application/json" }
     });
-
     return JSON.parse(this.cleanJsonString(response.text)) as ComboTip;
   }
 
@@ -156,7 +145,7 @@ export class BettingService {
     return ai.chats.create({
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano. Aiuta l'utente con analisi scommesse.",
+        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con precisione tecnica.",
         tools: [{ googleSearch: {} }]
       },
     });

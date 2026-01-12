@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 
 interface Props {
   onAccessGranted: () => void;
@@ -7,160 +6,120 @@ interface Props {
 
 const AccessPage: React.FC<Props> = ({ onAccessGranted }) => {
   const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState<number>(1);
   const [error, setError] = useState<string | null>(null);
-  const paypalButtonRef = useRef<HTMLDivElement>(null);
+  const [showCardForm, setShowCardForm] = useState(false);
+  
+  // Single plan details
+  const plan = { name: 'Neural Oracle Access', price: 5.00, desc: 'Full Access to Daily AI Betting Insights', icon: '🔮' };
 
-  const plans = [
-    { id: 0, name: 'Neural Pass', price: 2.99, desc: 'Accesso 24h al database', icon: '⚡' },
-    { id: 1, name: 'Oracle Weekly', price: 9.99, desc: 'Analisi Pro per 7 giorni', icon: '💎', popular: true },
-    { id: 2, name: 'Cyber Monthly', price: 29.99, desc: '30 giorni di Full Access', icon: '🏆' },
-  ];
-
-  const currentPlan = plans.find(p => p.id === selectedPlan) || plans[1];
-
-  useEffect(() => {
-    let paypalButtons: any = null;
-    let isMounted = true;
-
-    const renderButtons = () => {
-      if (!isMounted) return;
-      if ((window as any).paypal && paypalButtonRef.current) {
-        // Pulisci il container prima di renderizzare
-        paypalButtonRef.current.innerHTML = '';
-        
-        try {
-          paypalButtons = (window as any).paypal.Buttons({
-            style: {
-              layout: 'vertical',
-              color: 'gold',
-              shape: 'rect',
-              label: 'pay',
-              height: 45
-            },
-            createOrder: (data: any, actions: any) => {
-              return actions.order.create({
-                purchase_units: [{
-                  amount: {
-                    currency_code: 'EUR',
-                    value: currentPlan.price.toString()
-                  },
-                  description: `NEOTIP PLAN: ${currentPlan.name}`
-                }]
-              });
-            },
-            onApprove: async (data: any, actions: any) => {
-              setLoading(true);
-              try {
-                await actions.order.capture();
-                onAccessGranted();
-              } catch (err) {
-                setError("Errore cattura pagamento. Riprova.");
-              } finally {
-                setLoading(false);
-              }
-            },
-            onError: (err: any) => {
-              console.error('PayPal Error:', err);
-              setError("Servizio PayPal momentaneamente non disponibile.");
-            }
-          });
-
-          if (paypalButtons.isEligible()) {
-            paypalButtons.render(paypalButtonRef.current).catch((err: any) => {
-                console.error("Render catch:", err);
-            });
-          }
-        } catch (e) {
-          console.error("Initialization Error:", e);
-        }
-      }
-    };
-
-    // Polling per l'oggetto PayPal se lo script non è ancora pronto
-    const timer = setInterval(() => {
-      if ((window as any).paypal) {
-        renderButtons();
-        clearInterval(timer);
-      }
-    }, 500);
-
-    // Se è già disponibile, renderizza subito
-    if ((window as any).paypal) {
-      renderButtons();
-      clearInterval(timer);
-    }
-
-    return () => {
-      isMounted = false;
-      clearInterval(timer);
-      if (paypalButtons && paypalButtons.close) {
-        paypalButtons.close();
-      }
-    };
-  }, [selectedPlan]);
+  const handleSimulatedStripePayment = () => {
+    setLoading(true);
+    setError(null);
+    
+    // Simulate API delay for Stripe
+    setTimeout(() => {
+      setLoading(false);
+      localStorage.setItem('neotip_authorized', 'true');
+      onAccessGranted();
+    }, 2500);
+  };
 
   return (
     <div className="min-h-screen bg-[#050607] flex flex-col p-6 items-center justify-center animate-fadeIn relative overflow-hidden">
-      <div className="text-center mb-8 relative z-10">
+      {/* Matrix Background Blur */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-[#00FF66]/5 rounded-full blur-[120px] pointer-events-none"></div>
+
+      <div className="text-center mb-12 relative z-10">
         <div 
-          className="w-20 h-20 bg-[#050607] border-2 border-[#00FF66] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[0_0_40px_rgba(0,255,102,0.3)] cursor-pointer active:scale-95 transition-transform"
+          className="w-24 h-24 bg-[#050607] border-2 border-[#00FF66] rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_50px_rgba(0,255,102,0.2)] cursor-pointer active:scale-95 transition-transform"
           onClick={() => {
               const count = (window as any)._bypassCount || 0;
               (window as any)._bypassCount = count + 1;
-              if (count >= 7) onAccessGranted(); // Easter Egg: 7 click per bypassare in fase di test
+              if (count >= 7) onAccessGranted(); 
           }}
         >
-          <span className="text-[#00FF66] font-black text-5xl font-poppins">N</span>
+          <span className="text-[#00FF66] font-black text-6xl font-poppins italic">N</span>
         </div>
-        <h1 className="text-4xl font-black text-white tracking-tighter mb-1 font-poppins italic neon-text">NEOTIP</h1>
-        <p className="text-slate-500 text-[10px] font-mono uppercase tracking-[0.3em] font-bold">Neural Betting Oracle</p>
+        <h1 className="text-5xl font-black text-white tracking-tighter mb-2 font-poppins italic neon-text">NEOTIP</h1>
+        <p className="text-slate-500 text-[11px] font-mono uppercase tracking-[0.4em] font-black">Neural Betting Oracle</p>
       </div>
 
-      <div className="w-full max-w-sm space-y-3 mb-8 relative z-10">
-        {plans.map((plan) => (
-          <button
-            key={plan.id}
-            onClick={() => { setError(null); setSelectedPlan(plan.id); }}
-            className={`w-full relative glass-morphism p-4 rounded-2xl border-2 transition-all flex items-center gap-4 text-left ${
-              selectedPlan === plan.id ? 'border-[#00FF66] bg-[#00FF66]/10 shadow-[0_0_20px_rgba(0,255,102,0.1)]' : 'border-slate-800/50'
-            }`}
-          >
-            <span className="text-2xl">{plan.icon}</span>
-            <div className="flex-1">
-              <h3 className="font-bold text-white text-sm uppercase">{plan.name}</h3>
-              <p className="text-[9px] text-slate-500 font-mono tracking-tighter">{plan.desc}</p>
+      {!showCardForm ? (
+        <div className="w-full max-w-sm relative z-10 animate-slideUp">
+          <div className="glass-morphism p-8 rounded-[3rem] border border-[#00FF66]/30 shadow-2xl space-y-8">
+            <div className="text-center">
+              <span className="text-5xl mb-4 block">{plan.icon}</span>
+              <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter">{plan.name}</h2>
+              <p className="text-[11px] text-slate-500 font-mono mt-2 uppercase tracking-widest">{plan.desc}</p>
             </div>
-            <div className="text-right">
-              <p className="text-lg font-black text-white font-mono">€{plan.price}</p>
+            
+            <div className="bg-white/5 p-6 rounded-2xl border border-white/5 text-center">
+              <p className="text-[10px] text-slate-500 font-black uppercase mb-1">One-Time Activation</p>
+              <p className="text-5xl font-black text-[#00FF66] font-mono">€5<span className="text-xl">.00</span></p>
             </div>
-          </button>
-        ))}
-      </div>
 
-      <div className="w-full max-w-sm relative z-10 bg-[#0a0c0e]/95 border border-[#00FF66]/20 p-6 rounded-[2.5rem] backdrop-blur-2xl shadow-2xl min-h-[150px] flex flex-col justify-center">
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-500 text-[9px] p-3 rounded-xl mb-4 font-mono font-bold text-center uppercase animate-pulse">
-            {error}
+            <button 
+              onClick={() => setShowCardForm(true)}
+              className="w-full py-5 bg-[#00FF66] text-[#050607] rounded-2xl text-[12px] font-black uppercase tracking-[0.2em] shadow-[0_0_30px_rgba(0,255,102,0.3)] hover:scale-[1.02] active:scale-95 transition-all"
+            >
+              Abbonati Ora con Stripe
+            </button>
           </div>
-        )}
-        
-        <div ref={paypalButtonRef} className="rounded-xl overflow-hidden transition-all duration-500">
-           {!error && !(window as any).paypal && (
-             <div className="flex flex-col items-center gap-2 py-4">
-                <div className="w-5 h-5 border-2 border-[#00FF66]/20 border-t-[#00FF66] rounded-full animate-spin"></div>
-                <span className="text-[8px] text-slate-500 font-mono uppercase">Caricamento PayPal...</span>
-             </div>
-           )}
         </div>
-      </div>
+      ) : (
+        <div className="w-full max-w-sm relative z-10 animate-slideUp">
+          <div className="glass-morphism p-8 rounded-[3rem] border border-[#00FF66]/30 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center mb-4">
+              <button onClick={() => setShowCardForm(false)} className="text-slate-500 hover:text-white transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+              <h3 className="text-white font-black text-xs uppercase tracking-widest">Stripe Checkout</h3>
+              <div className="w-5"></div>
+            </div>
 
-      <p className="mt-8 text-[8px] text-slate-600 font-mono uppercase tracking-widest relative z-10">Secure Neural Transaction System</p>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Email</label>
+                <input type="email" placeholder="email@esempio.com" className="w-full bg-[#0a0c0e] border border-white/10 rounded-xl px-4 py-3 text-white text-[12px] font-mono focus:border-[#00FF66] outline-none" />
+              </div>
+              
+              <div className="space-y-1.5">
+                <label className="text-[9px] text-slate-500 font-black uppercase tracking-widest ml-1">Card Details</label>
+                <div className="bg-[#0a0c0e] border border-white/10 rounded-xl p-4 space-y-4">
+                   <input type="text" placeholder="Card number" className="w-full bg-transparent text-white text-[12px] font-mono outline-none" />
+                   <div className="flex gap-4 border-t border-white/5 pt-3">
+                      <input type="text" placeholder="MM/YY" className="w-20 bg-transparent text-white text-[12px] font-mono outline-none" />
+                      <input type="text" placeholder="CVC" className="w-16 bg-transparent text-white text-[12px] font-mono outline-none ml-auto" />
+                   </div>
+                </div>
+              </div>
+            </div>
+
+            {error && <p className="text-red-500 text-[10px] font-mono text-center uppercase">{error}</p>}
+
+            <button 
+              onClick={handleSimulatedStripePayment}
+              disabled={loading}
+              className="w-full py-5 bg-[#00FF66] text-[#050607] rounded-2xl text-[12px] font-black uppercase tracking-[0.2em] shadow-[0_0_30px_rgba(0,255,102,0.3)] active:scale-95 transition-all disabled:opacity-50 flex justify-center items-center gap-3"
+            >
+              {loading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-black/20 border-t-black rounded-full animate-spin"></div>
+                  Processing...
+                </>
+              ) : `Paga €5.00`}
+            </button>
+            <p className="text-[8px] text-slate-600 text-center font-mono uppercase tracking-widest">Powered by Stripe Connect</p>
+          </div>
+        </div>
+      )}
+
+      <p className="mt-12 text-[9px] text-slate-600 font-mono uppercase tracking-[0.3em] relative z-10">Secure Neural Transaction Hub</p>
 
       {loading && (
-        <div className="fixed inset-0 z-[200] bg-black/95 flex flex-col items-center justify-center backdrop-blur-xl">
-           <div className="w-14 h-14 border-4 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-6 shadow-[0_0_20px_rgba(0,255,102,0.2)]"></div>
-           <p className="text-[#00FF66] font-mono text-xs font-black tracking-widest animate-pulse uppercase">Sincronizzazione Oracle...</p>
+        <div className="fixed inset-0 z-[200] bg-black/90 flex flex-col items-center justify-center backdrop-blur-xl">
+           <div className="w-14 h-14 border-4 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-6"></div>
+           <p className="text-[#00FF66] font-mono text-xs font-black tracking-widest animate-pulse uppercase">Syncing Matrix Access...</p>
         </div>
       )}
     </div>

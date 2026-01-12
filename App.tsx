@@ -64,8 +64,7 @@ const App: React.FC = () => {
       setSchedina(data);
     } catch (err: any) {
       console.error("App.tsx Error:", err);
-      // Forniamo un messaggio di errore più descrittivo per il debug dell'utente
-      if (err.message?.includes("API_KEY_MISSING")) {
+      if (err.message?.includes("CHIAVE_MANCANTE")) {
         setError("CHIAVE API MANCANTE: Configurala nel pannello Cloudflare.");
       } else {
         setError(err.message || "Errore sincronizzazione Oracle. Verifica la connessione.");
@@ -145,116 +144,153 @@ const App: React.FC = () => {
   if (!isAuthorized) return <AccessPage onAccessGranted={() => setIsAuthorized(true)} />;
 
   return (
-    <div className="min-h-screen max-w-lg mx-auto bg-[#050607] pb-32 relative animate-fadeIn">
+    <div className="min-h-screen bg-[#050607] pb-32 animate-fadeIn transition-all">
       <IOSInstallGuide />
       
-      <header className="sticky top-0 z-50 glass-morphism p-6 flex justify-between items-center border-b border-[#00FF66]/10 pt-[calc(env(safe-area-inset-top)+1rem)]">
-        <div>
-          <h1 className="text-2xl font-black text-white tracking-tighter neon-text italic">NEOTIP</h1>
-          <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest font-mono">Neural multi-sport hub</p>
+      <header className="sticky top-0 z-50 glass-morphism border-b border-[#00FF66]/10 pt-[calc(env(safe-area-inset-top)+0.5rem)]">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-black text-white tracking-tighter neon-text italic">NEOTIP</h1>
+            <p className="text-[8px] md:text-[10px] text-slate-500 font-bold uppercase tracking-widest font-mono">Neural multi-sport hub</p>
+          </div>
+          <div className="flex items-center gap-4">
+             <button onClick={loadData} className="p-2.5 bg-[#00FF66]/10 border border-[#00FF66]/20 rounded-xl text-[#00FF66] hover:bg-[#00FF66]/20 transition-all">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={loading ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+            </button>
+            <div className="hidden md:flex bg-[#0a0c0e] rounded-xl p-1 border border-white/5">
+                {['home', 'combos', 'history'].map((v) => (
+                  <button 
+                    key={v}
+                    onClick={() => setActiveView(v as View)}
+                    className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${activeView === v ? 'bg-[#00FF66] text-[#050607]' : 'text-slate-500'}`}
+                  >
+                    {v}
+                  </button>
+                ))}
+            </div>
+          </div>
         </div>
-        <button onClick={loadData} className="p-2.5 bg-[#00FF66]/10 border border-[#00FF66]/20 rounded-xl text-[#00FF66]">
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={loading ? 'animate-spin' : ''}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
-        </button>
       </header>
 
-      {activeView === 'home' && (
-        <div className="px-4 pt-4 pb-2 space-y-5 sticky top-[95px] z-40 bg-[#050607]/90 backdrop-blur-xl">
-          <div className="flex bg-[#0a0c0e] p-1.5 rounded-2xl border border-white/5">
-            {[
-              { id: 'Today', label: `OGGI • ${dates.today}` },
-              { id: 'Tomorrow', label: `DOMANI • ${dates.tomorrow}` }
-            ].map((day) => (
+      <div className="max-w-6xl mx-auto">
+        {activeView === 'home' && (
+          <div className="px-4 md:px-6 pt-4 pb-2 space-y-5 sticky top-[80px] md:top-[90px] z-40 bg-[#050607]/90 backdrop-blur-xl border-b border-white/5 md:border-none">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex bg-[#0a0c0e] p-1.5 rounded-2xl border border-white/5 flex-1 max-w-md">
+                {[
+                  { id: 'Today', label: `OGGI • ${dates.today}` },
+                  { id: 'Tomorrow', label: `DOMANI • ${dates.tomorrow}` }
+                ].map((day) => (
+                  <button 
+                    key={day.id}
+                    onClick={() => setSelectedDay(day.id as any)}
+                    className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedDay === day.id ? 'bg-[#00FF66] text-[#050607]' : 'text-slate-500'}`}
+                  >
+                    {day.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 items-center">
+                {['All', 'Football', 'Basketball', 'Tennis', 'Volley'].map((sport) => (
+                  <button 
+                    key={sport}
+                    onClick={() => setSelectedSport(sport as any)}
+                    className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase border transition-all flex-shrink-0 ${selectedSport === sport ? 'border-[#00FF66] text-[#00FF66] bg-[#00FF66]/15' : 'border-white/10 text-slate-500 bg-white/5'}`}
+                  >
+                    {sport}
+                  </button>
+                ))}
+              </div>
+
               <button 
-                key={day.id}
-                onClick={() => setSelectedDay(day.id as any)}
-                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${selectedDay === day.id ? 'bg-[#00FF66] text-[#050607]' : 'text-slate-500'}`}
+                onClick={handleGenerateLuckyTip}
+                disabled={loading || loadingRandom}
+                className="md:ml-auto md:w-auto px-8 bg-[#00FF66]/5 border border-[#00FF66]/40 rounded-2xl py-3 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-30 hover:bg-[#00FF66]/10"
               >
-                {day.label}
+                <span className="text-[10px] font-black text-[#00FF66] uppercase tracking-widest">Oracle Surprise</span>
               </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {['All', 'Football', 'Basketball', 'Tennis', 'Volley'].map((sport) => (
-              <button 
-                key={sport}
-                onClick={() => setSelectedSport(sport as any)}
-                className={`px-5 py-3 rounded-2xl text-[9px] font-black uppercase border transition-all flex-shrink-0 ${selectedSport === sport ? 'border-[#00FF66] text-[#00FF66] bg-[#00FF66]/15' : 'border-white/10 text-slate-500 bg-white/5'}`}
-              >
-                {sport}
-              </button>
-            ))}
-          </div>
-
-          <button 
-            onClick={handleGenerateLuckyTip}
-            disabled={loading || loadingRandom}
-            className="w-full bg-[#00FF66]/5 border border-[#00FF66]/40 rounded-2xl py-3 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-30"
-          >
-            <span className="text-[10px] font-black text-[#00FF66] uppercase tracking-widest">Genera Combo Oracolo</span>
-          </button>
-        </div>
-      )}
-
-      <main className="p-4 pt-6 space-y-6">
-        {activeView === 'home' ? (
-          loading ? (
-             <div className="flex flex-col items-center justify-center py-40">
-                <div className="w-10 h-10 border-2 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-4"></div>
-                <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-widest animate-pulse">Syncing Matrix...</p>
-             </div>
-          ) : (
-            <div className="space-y-4">
-              {error && (
-                <div className="p-8 glass-morphism rounded-3xl border border-red-500/30 text-center">
-                  <p className="text-red-400 font-mono text-[10px] uppercase mb-4 leading-relaxed">{error}</p>
-                  <button onClick={loadData} className="px-6 py-2 bg-red-500/20 text-red-400 rounded-xl border border-red-500/40 text-[10px] font-black uppercase">Riprova Sync</button>
-                </div>
-              )}
-
-              {filteredPredictions.map((p, idx) => (
-                <MatchCard key={idx} prediction={p} onPlay={handlePlayBet} />
-              ))}
             </div>
-          )
-        ) : activeView === 'combos' ? (
-          <div className="space-y-6">
-             <h2 className="text-white font-black uppercase text-2xl italic px-2">Neural Combos</h2>
-             {schedina?.dailyCombos.map((combo, idx) => (
-               <div key={idx} className="glass-morphism p-8 rounded-[2.5rem] border border-[#00FF66]/20">
-                 <h3 className="text-xl font-black text-white mb-4 italic">{combo.title}</h3>
-                 <div className="space-y-3 mb-6">
-                   {combo.predictions.map((p, i) => (
-                     <div key={i} className="flex justify-between text-[11px] text-slate-400 border-b border-white/5 pb-2">
-                       <span>{p.event}</span>
-                       <span className="text-[#00FF66] font-bold">@{p.odds.toFixed(2)}</span>
-                     </div>
-                   ))}
-                 </div>
-                 <div className="flex justify-between items-center">
-                   <p className="text-2xl font-black text-[#00FF66]">@{combo.totalOdds.toFixed(2)}</p>
-                   <button onClick={() => handlePlayCombo(combo)} className="px-6 py-3 bg-[#00FF66] text-[#050607] rounded-xl text-[10px] font-black uppercase">Gioca</button>
-                 </div>
-               </div>
-             ))}
-          </div>
-        ) : activeView === 'history' ? (
-          <HistorySection 
-            history={history} 
-            onDelete={(id) => setHistory(h => h.filter(x => x.id !== id))} 
-            onUpdateStatus={(id, s) => setHistory(h => h.map(x => x.id === id ? {...x, status: s} : x))} 
-          />
-        ) : (
-          <div className="p-8 text-center">
-             <p className="text-slate-500 font-mono text-[10px] tracking-widest uppercase">Premium Access Enabled</p>
           </div>
         )}
-      </main>
+
+        <main className="p-4 md:p-6 pt-6">
+          {activeView === 'home' ? (
+            loading ? (
+               <div className="flex flex-col items-center justify-center py-40">
+                  <div className="w-10 h-10 border-2 border-[#00FF66]/10 border-t-[#00FF66] rounded-full animate-spin mb-4"></div>
+                  <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-widest animate-pulse">Neural Syncing...</p>
+               </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {error && (
+                  <div className="col-span-full p-12 glass-morphism rounded-3xl border border-red-500/30 text-center">
+                    <p className="text-red-400 font-mono text-[10px] uppercase mb-4 leading-relaxed">{error}</p>
+                    <button onClick={loadData} className="px-6 py-2 bg-red-500/20 text-red-400 rounded-xl border border-red-500/40 text-[10px] font-black uppercase">Riprova Sync</button>
+                  </div>
+                )}
+
+                {filteredPredictions.map((p, idx) => (
+                  <MatchCard key={idx} prediction={p} onPlay={handlePlayBet} />
+                ))}
+                
+                {filteredPredictions.length === 0 && !error && (
+                  <div className="col-span-full py-40 text-center">
+                    <p className="text-slate-500 font-mono text-[10px] uppercase tracking-[0.3em]">No Neural Data Found for selection</p>
+                  </div>
+                )}
+              </div>
+            )
+          ) : activeView === 'combos' ? (
+            <div className="space-y-8 max-w-4xl mx-auto">
+               <h2 className="text-white font-black uppercase text-3xl italic px-2 md:text-center">Neural Combos</h2>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                 {schedina?.dailyCombos.map((combo, idx) => (
+                   <div key={idx} className="glass-morphism p-8 md:p-10 rounded-[2.5rem] border border-[#00FF66]/20 flex flex-col justify-between">
+                     <div>
+                       <div className="flex justify-between items-start mb-4">
+                         <h3 className="text-xl font-black text-white italic">{combo.title}</h3>
+                         <span className="text-[8px] bg-[#00FF66]/20 text-[#00FF66] px-2 py-1 rounded-full font-mono uppercase font-black">{combo.type}</span>
+                       </div>
+                       <div className="space-y-4 mb-8">
+                         {combo.predictions.map((p, i) => (
+                           <div key={i} className="flex justify-between text-[11px] text-slate-400 border-b border-white/5 pb-2">
+                             <span className="font-mono">{p.event}</span>
+                             <span className="text-[#00FF66] font-bold">@{p.odds.toFixed(2)}</span>
+                           </div>
+                         ))}
+                       </div>
+                     </div>
+                     <div className="flex justify-between items-center mt-4">
+                       <div>
+                         <p className="text-[10px] text-slate-500 uppercase font-black font-mono">Total Odds</p>
+                         <p className="text-3xl font-black text-[#00FF66]">@{combo.totalOdds.toFixed(2)}</p>
+                       </div>
+                       <button onClick={() => handlePlayCombo(combo)} className="px-8 py-4 bg-[#00FF66] text-[#050607] rounded-xl text-[10px] font-black uppercase hover:shadow-[0_0_20px_rgba(0,255,102,0.4)] transition-all">Gioca</button>
+                     </div>
+                   </div>
+                 ))}
+               </div>
+            </div>
+          ) : activeView === 'history' ? (
+            <div className="max-w-4xl mx-auto">
+              <HistorySection 
+                history={history} 
+                onDelete={(id) => setHistory(h => h.filter(x => x.id !== id))} 
+                onUpdateStatus={(id, s) => setHistory(h => h.map(x => x.id === id ? {...x, status: s} : x))} 
+              />
+            </div>
+          ) : (
+            <div className="p-8 text-center">
+               <p className="text-slate-500 font-mono text-[10px] tracking-widest uppercase">Premium Hub Access</p>
+            </div>
+          )}
+        </main>
+      </div>
 
       <ChatBot />
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto glass-morphism border-t border-[#00FF66]/15 p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex justify-around items-center z-50 rounded-t-[2.5rem]">
+      <nav className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto md:hidden glass-morphism border-t border-[#00FF66]/15 p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] flex justify-around items-center z-50 rounded-t-[2.5rem]">
         <button onClick={() => setActiveView('home')} className={`flex flex-col items-center gap-1 ${activeView === 'home' ? 'text-[#00FF66]' : 'text-slate-600'}`}>
           <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
           <span className="text-[8px] font-black uppercase">Events</span>
