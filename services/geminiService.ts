@@ -128,7 +128,6 @@ export class BettingService {
     }
   }
 
-  // ChatBot and other methods should be updated to use callOracleApi
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
     return this.callOracleApi({
       prompt: message,
