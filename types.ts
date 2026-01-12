@@ -16,7 +16,11 @@ export interface MatchStats {
   avgGoals?: string;
   recentForm: string;
   h2h?: string;
-  pointsPerGame?: string;
+  tacticalInsight?: string; 
+  keyAbsences?: string;    
+  winProbability?: number; 
+  recommendedScore?: string; // Risultato esatto consigliato
+  scoreReasoning?: string;    // Perché proprio questo risultato esatto
 }
 
 export interface GroundingSource {
@@ -32,7 +36,7 @@ export interface Prediction {
   reasoning: string;
   marketType: string;
   statistics: MatchStats;
-  event?: string; // Utilizzato nelle combo per il nome del match
+  event?: string;
 }
 
 export interface ComboTip {

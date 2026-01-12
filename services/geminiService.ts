@@ -1,90 +1,63 @@
 
-import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { Schedina, Prediction, ComboTip } from "../types";
 
 export class BettingService {
-  private async callOracleApi(payload: any): Promise<any> {
-    console.log("NEOTIP_ORACLE: Richiesta dati...", payload);
-    try {
-      const response = await fetch("/api/oracle/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("NEOTIP_ORACLE: Errore API:", errorText);
-        throw new Error(`Errore Server: ${response.status}. Controlla i Secret di Cloudflare.`);
-      }
-
-      const result = await response.json();
-      if (!result.ok) throw new Error(result.error || "Errore sconosciuto dall'Oracolo.");
-      return result;
-    } catch (e: any) {
-      console.error("NEOTIP_ORACLE: Fallimento fetch:", e);
-      throw e;
-    }
-  }
-
-  private cleanJsonString(text: string | undefined): string {
-    if (!text) return "{}";
-    let cleaned = text.trim();
-    // Pulisce blocchi markdown
-    cleaned = cleaned.replace(/^```json/g, "").replace(/```$/g, "").trim();
-    const start = cleaned.indexOf('{');
-    const end = cleaned.lastIndexOf('}');
-    if (start !== -1 && end !== -1) {
-      cleaned = cleaned.substring(start, end + 1);
-    }
-    return cleaned;
-  }
+  private ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   async generateDailySchedina(): Promise<Schedina> {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+    const tomorrow = new Date(today);
+    tomorrow.setDate(today.getDate() + 1);
+
+    const todayISO = today.toISOString().split('T')[0];
+    const tomorrowISO = tomorrow.toISOString().split('T')[0];
     
-    // Prompt ultra-dettagliato per evitare fallimenti di ricerca
-    const prompt = `DATA DI RIFERIMENTO: ${todayStr}.
-    ISTRUZIONI:
-    1. Usa Google Search per trovare i match di CALCIO, BASKET e TENNIS di OGGI (${todayStr}) e DOMANI.
-    2. Cerca nei siti: Diretta.it, Flashscore, Gazzetta, Snai per quote reali.
-    3. Genera ALMENO 10 pronostici dettagliati.
-    4. Per ogni match, la data DEVE essere nel formato ISO YYYY-MM-DD.
-    5. Inserisci quote reali (es: 1.65, 2.10, 3.40).
+    // Prompt ultra-direttivo per dati reali e formati coerenti
+    const prompt = `USA GOOGLE SEARCH per trovare i match sportivi REALI che si giocano OGGI (${todayISO}) e DOMANI (${tomorrowISO}).
+    Focus su: Serie A, Premier League, Liga, Bundesliga, NBA, Tennis ATP/WTA.
     
-    RISPONDI SOLO IN JSON PURO seguendo lo schema richiesto. Non aggiungere testo prima o dopo.`;
+    REGOLE MANDATORIE PER IL JSON:
+    1. CAMPO 'date': Deve essere ESATTAMENTE 'YYYY-MM-DD'. Se il match è oggi scrivi '${todayISO}', se è domani '${tomorrowISO}'.
+    2. EVENTI REALI: Cerca match reali su Snai, Eurobet o Bet365. Non inventare dati.
+    3. QUOTE: Estrai quote reali aggiornate (es. 1.85, 2.10).
+    4. DISTRIBUZIONE: Includi match sia per oggi che per domani.
+    5. DETTAGLIO: Fornisci un 'recommendedScore' realistico basato sulla forma attuale delle squadre.`;
 
     const responseSchema = {
-      type: "OBJECT",
+      type: Type.OBJECT,
       properties: {
         predictions: {
-          type: "ARRAY",
+          type: Type.ARRAY,
           items: {
-            type: "OBJECT",
+            type: Type.OBJECT,
             properties: {
               match: {
-                type: "OBJECT",
+                type: Type.OBJECT,
                 properties: {
-                  id: { type: "STRING" },
-                  homeTeam: { type: "STRING" },
-                  awayTeam: { type: "STRING" },
-                  league: { type: "STRING" },
-                  time: { type: "STRING" },
-                  date: { type: "STRING" }, // Formato YYYY-MM-DD
-                  sport: { type: "STRING" }
+                  homeTeam: { type: Type.STRING },
+                  awayTeam: { type: Type.STRING },
+                  league: { type: Type.STRING },
+                  time: { type: Type.STRING },
+                  date: { type: Type.STRING, description: "Formato rigoroso YYYY-MM-DD" },
+                  sport: { type: Type.STRING, description: "Football, Basketball, Tennis, o Volley" }
                 },
                 required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"]
               },
-              bet: { type: "STRING" },
-              odds: { type: "NUMBER" },
-              confidence: { type: "NUMBER" },
-              reasoning: { type: "STRING" },
-              marketType: { type: "STRING" },
+              bet: { type: Type.STRING },
+              odds: { type: Type.NUMBER },
+              confidence: { type: Type.NUMBER },
+              reasoning: { type: Type.STRING },
+              marketType: { type: Type.STRING },
               statistics: {
-                type: "OBJECT",
+                type: Type.OBJECT,
                 properties: {
-                  recentForm: { type: "STRING" },
-                  avgGoals: { type: "STRING" }
+                  recentForm: { type: Type.STRING },
+                  tacticalInsight: { type: Type.STRING },
+                  winProbability: { type: Type.NUMBER },
+                  avgGoals: { type: Type.STRING },
+                  recommendedScore: { type: Type.STRING },
+                  scoreReasoning: { type: Type.STRING }
                 }
               }
             },
@@ -92,75 +65,72 @@ export class BettingService {
           }
         },
         dailyCombos: {
-          type: "ARRAY",
+          type: Type.ARRAY,
           items: {
-            type: "OBJECT",
+            type: Type.OBJECT,
             properties: {
-              title: { type: "STRING" },
-              type: { type: "STRING" },
-              totalOdds: { type: "NUMBER" },
-              reasoning: { type: "STRING" },
+              title: { type: Type.STRING },
+              type: { type: Type.STRING },
+              totalOdds: { type: Type.NUMBER },
               predictions: {
-                type: "ARRAY",
+                type: Type.ARRAY,
                 items: {
-                  type: "OBJECT",
+                  type: Type.OBJECT,
                   properties: {
-                    event: { type: "STRING" },
-                    odds: { type: "NUMBER" }
+                    event: { type: Type.STRING },
+                    odds: { type: Type.NUMBER }
                   }
                 }
               }
             }
           }
-        },
-        totalOdds: { type: "NUMBER" }
+        }
       },
       required: ["predictions", "dailyCombos"]
     };
 
     try {
-      const result = await this.callOracleApi({
-        prompt: prompt,
+      const response = await this.ai.models.generateContent({
         model: 'gemini-3-flash-preview',
+        contents: prompt,
         config: {
           responseMimeType: "application/json",
           responseSchema: responseSchema,
           tools: [{ googleSearch: {} }]
-        }
+        },
       });
 
-      const jsonContent = this.cleanJsonString(result.text);
-      const data = JSON.parse(jsonContent) as Schedina;
+      const text = response.text;
+      if (!text) throw new Error("Database temporaneamente non raggiungibile.");
       
-      if (!data.predictions || data.predictions.length === 0) {
-        throw new Error("L'Oracolo non ha trovato match per le date selezionate.");
-      }
-
-      const chunks = result.groundingMetadata?.groundingChunks || [];
-      const sources: GroundingSource[] = chunks.map((chunk: any) => ({
-        title: chunk.web?.title || "Fonte Live",
-        uri: chunk.web?.uri || ""
-      })).filter((s: GroundingSource) => s.uri !== "");
-      
+      const data = JSON.parse(text);
       return { 
         ...data, 
-        sources: sources, 
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
-    } catch (error: any) {
-      console.error("BettingService Crash:", error);
-      throw error;
+    } catch (error) {
+      console.error("Gemini Oracle Error:", error);
+      throw new Error("Errore durante la ricerca di match reali. Riprova.");
     }
   }
 
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
-    return this.callOracleApi({
-      prompt: message,
-      model: 'gemini-3-flash-preview',
-      config: {
-        systemInstruction: "Sei NeoTip Oracle. Rispondi in stile Cyberpunk 2077. Usa dati reali da Google Search.",
-        tools: [{ googleSearch: {} }]
-      }
-    });
+    try {
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: message,
+        config: {
+          systemInstruction: "Sei l'Oracolo di NeoTip. Fornisci analisi sul betting cyberpunk e professionale. Usa Google Search.",
+          tools: [{ googleSearch: {} }]
+        },
+      });
+      return {
+        text: response.text,
+        groundingMetadata: response.candidates?.[0]?.groundingMetadata
+      };
+    } catch (error) {
+      console.error("Chat Error:", error);
+      throw error;
+    }
   }
 }
