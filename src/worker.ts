@@ -1,23 +1,28 @@
-
 import { GoogleGenAI } from "@google/genai";
 
+/**
+ * Utilizziamo interfacce strutturali per evitare dipendenze dai tipi di Cloudflare
+ * che potrebbero entrare in conflitto con il compilatore TypeScript del frontend.
+ */
 interface Env {
   GEMINI_API_KEY: string;
-  ASSETS: { fetch(request: Request): Promise<Response> };
+  ASSETS: {
+    fetch(request: Request): Promise<Response>;
+  };
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Health Check
+    // 1. API - Health Check
     if (url.pathname === "/api/health") {
-      return new Response(JSON.stringify({ ok: true, status: "Oracle Online" }), {
+      return new Response(JSON.stringify({ ok: true, status: "NeoTip Oracle Online" }), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // 2. API Proxy per Gemini (Oracle Sync)
+    // 2. API - Oracle Sync Proxy
     if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
       try {
         const { prompt, model = "gemini-3-flash-preview", config = {} } = await request.json() as any;
@@ -25,14 +30,13 @@ export default {
         if (!env.GEMINI_API_KEY) {
           return new Response(JSON.stringify({ 
             ok: false, 
-            error: "GEMINI_API_KEY non configurata nel dashboard Cloudflare." 
+            error: "Configurazione Server incompleta: GEMINI_API_KEY mancante." 
           }), { 
             status: 500,
             headers: { "Content-Type": "application/json" }
           });
         }
 
-        // Inizializzazione AI lato server
         const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
         const response = await ai.models.generateContent({
           model: model,
@@ -56,16 +60,22 @@ export default {
       }
     }
 
-    // 3. Routing Static Assets (React App)
-    // Se la richiesta non è per /api/*, prova a servire i file dalla cartella dist
+    // 3. Static Assets & SPA Fallback
+    // wrangler.toml run_worker_first = ["/api/*"] assicura che arriviamo qui 
+    // solo per rotte non gestite sopra.
     try {
-      const response = await env.ASSETS.fetch(request);
+      const assetResponse = await env.ASSETS.fetch(request);
       
-      // Se il file non esiste (404), la config not_found_handling: "single-page-application"
-      // nel wrangler.toml gestirà automaticamente il ritorno di index.html
-      return response;
+      // Se l'asset non esiste (404), il binding ASSETS con 
+      // not_found_handling = "single-page-application" restituirà comunque la index.html
+      // se configurato correttamente, ma aggiungiamo un controllo esplicito per sicurezza.
+      if (assetResponse.status === 404) {
+        return await env.ASSETS.fetch(new Request(new URL("/", request.url)));
+      }
+      
+      return assetResponse;
     } catch (e) {
-      return new Response("Asset Not Found", { status: 404 });
+      return new Response("Internal Server Error during asset fetch", { status: 500 });
     }
   },
 };
