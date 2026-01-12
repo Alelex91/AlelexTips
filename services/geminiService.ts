@@ -1,18 +1,19 @@
 
-import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
 import { Schedina, GroundingSource, Prediction, ComboTip } from "../types";
 
 export class BettingService {
-  private getAiInstance(): GoogleGenAI {
-    // Nota: process.env.API_KEY deve essere configurata come variabile di ambiente nelle impostazioni di Cloudflare Pages (settore BUILD)
-    const apiKey = process.env.API_KEY;
-    
-    if (!apiKey || apiKey === "undefined" || apiKey === "" || apiKey.includes("process.env")) {
-      console.error("ERRORE CRITICO: API_KEY non trovata nel bundle.");
-      throw new Error("CHIAVE_MANCANTE: Assicurati di aver aggiunto API_KEY nelle variabili di ambiente di Cloudflare (Settings -> Environment Variables -> BUILD) e di aver rifatto il deploy.");
+  private async callOracleApi(payload: any): Promise<any> {
+    const response = await fetch("/api/oracle/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(result.error || "Errore di comunicazione con l'Oracolo.");
     }
-    
-    return new GoogleGenAI({ apiKey });
+    return result;
   }
 
   private cleanJsonString(text: string | undefined): string {
@@ -28,10 +29,7 @@ export class BettingService {
 
   async generateDailySchedina(): Promise<Schedina> {
     try {
-      const ai = this.getAiInstance();
-      const modelName = 'gemini-3-flash-preview';
       const now = new Date();
-      
       const todayStr = now.toLocaleDateString('en-CA');
       const timeStr = now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
@@ -41,41 +39,41 @@ export class BettingService {
       Trova almeno 5 pronostici con quote reali cercandole sul web.
       Ritorna i dati strutturati in JSON puro come da schema richiesto.`;
 
-      const response: GenerateContentResponse = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
+      const result = await this.callOracleApi({
+        prompt: prompt,
+        model: 'gemini-3-flash-preview',
         config: {
           tools: [{ googleSearch: {} }],
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: "OBJECT",
             properties: {
               predictions: {
-                type: Type.ARRAY,
+                type: "ARRAY",
                 items: {
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
                     match: {
-                      type: Type.OBJECT,
+                      type: "OBJECT",
                       properties: {
-                        homeTeam: { type: Type.STRING },
-                        awayTeam: { type: Type.STRING },
-                        league: { type: Type.STRING },
-                        time: { type: Type.STRING },
-                        date: { type: Type.STRING },
-                        sport: { type: Type.STRING }
+                        homeTeam: { type: "STRING" },
+                        awayTeam: { type: "STRING" },
+                        league: { type: "STRING" },
+                        time: { type: "STRING" },
+                        date: { type: "STRING" },
+                        sport: { type: "STRING" }
                       },
                       required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"],
                     },
-                    bet: { type: Type.STRING },
-                    odds: { type: Type.NUMBER },
-                    confidence: { type: Type.NUMBER },
-                    reasoning: { type: Type.STRING },
-                    marketType: { type: Type.STRING },
+                    bet: { type: "STRING" },
+                    odds: { type: "NUMBER" },
+                    confidence: { type: "NUMBER" },
+                    reasoning: { type: "STRING" },
+                    marketType: { type: "STRING" },
                     statistics: {
-                      type: Type.OBJECT,
+                      type: "OBJECT",
                       properties: {
-                        recentForm: { type: Type.STRING }
+                        recentForm: { type: "STRING" }
                       },
                       required: ["recentForm"],
                     },
@@ -83,39 +81,37 @@ export class BettingService {
                 },
               },
               dailyCombos: {
-                type: Type.ARRAY,
+                type: "ARRAY",
                 items: {
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
-                    title: { type: Type.STRING },
-                    type: { type: Type.STRING },
+                    title: { type: "STRING" },
+                    type: { type: "STRING" },
                     predictions: { 
-                      type: Type.ARRAY, 
+                      type: "ARRAY", 
                       items: { 
-                        type: Type.OBJECT, 
+                        type: "OBJECT", 
                         properties: { 
-                          event: { type: Type.STRING },
-                          bet: { type: Type.STRING }, 
-                          odds: { type: Type.NUMBER } 
+                          event: { type: "STRING" },
+                          bet: { type: "STRING" }, 
+                          odds: { type: "NUMBER" } 
                         } 
                       } 
                     },
-                    totalOdds: { type: Type.NUMBER },
+                    totalOdds: { type: "NUMBER" },
                   },
                 },
               },
-              totalOdds: { type: Type.NUMBER },
+              totalOdds: { type: "NUMBER" },
             },
           },
-        },
+        }
       });
 
-      if (!response.text) throw new Error("L'Oracolo non ha risposto. Sincronizzazione fallita.");
-      
-      const responseText = this.cleanJsonString(response.text);
+      const responseText = this.cleanJsonString(result.text);
       const data = JSON.parse(responseText) as Schedina;
       
-      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+      const chunks = result.groundingMetadata?.groundingChunks || [];
       const sources: GroundingSource[] = chunks.map((chunk: any) => ({
         title: chunk.web?.title || "Database Oracle",
         uri: chunk.web?.uri || ""
@@ -132,24 +128,15 @@ export class BettingService {
     }
   }
 
-  async generateOracleSurprise(availablePredictions: Prediction[]): Promise<ComboTip> {
-    const ai = this.getAiInstance();
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Analizza questi match e crea una combo scommessa a sorpresa ad alta quota: ${JSON.stringify(availablePredictions.slice(0, 5))}`,
-      config: { responseMimeType: "application/json" }
-    });
-    return JSON.parse(this.cleanJsonString(response.text)) as ComboTip;
-  }
-
-  createChatSession(lat?: number, lng?: number): Chat {
-    const ai = this.getAiInstance();
-    return ai.chats.create({
+  // ChatBot and other methods should be updated to use callOracleApi
+  async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
+    return this.callOracleApi({
+      prompt: message,
       model: 'gemini-3-flash-preview',
       config: {
-        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con un tono tecnico, futuristico e preciso. Sei un esperto di analisi sportiva statistica. Se ti vengono chiesti centri scommesse vicini, usa le tue capacità di ricerca per trovarli basandoti sulla posizione dell'utente se disponibile.",
+        systemInstruction: "Sei NeoTip Oracle. Rispondi in italiano con un tono tecnico, futuristico e preciso. Sei un esperto di analisi sportiva statistica.",
         tools: [{ googleSearch: {} }]
-      },
+      }
     });
   }
 }

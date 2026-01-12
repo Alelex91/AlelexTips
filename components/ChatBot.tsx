@@ -1,7 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { BettingService } from '../services/geminiService';
-import { GenerateContentResponse } from '@google/genai';
 
 const ChatBot: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -9,22 +8,12 @@ const ChatBot: React.FC = () => {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number} | null>(null);
-  const chatRef = useRef<any>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bettingService = new BettingService();
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [messages, isTyping]);
-
-  useEffect(() => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.warn("Geolocation denied", err)
-      );
-    }
-  }, []);
 
   const handleSendMessage = async () => {
     if (!input.trim()) return;
@@ -34,32 +23,15 @@ const ChatBot: React.FC = () => {
     setIsTyping(true);
 
     try {
-      if (!chatRef.current) {
-        chatRef.current = bettingService.createChatSession(location?.lat, location?.lng);
-      }
-
-      const stream = await chatRef.current.sendMessageStream({ message: userMessage });
-      let fullText = '';
-      setMessages(prev => [...prev, { role: 'ai', text: '' }]);
+      const response = await bettingService.sendMessageToChat(userMessage, location?.lat, location?.lng);
       
-      for await (const chunk of stream) {
-        const chunkResponse = chunk as GenerateContentResponse;
-        const text = chunkResponse.text;
-        if (text) {
-          fullText += text;
-          setMessages(prev => {
-            const newMessages = [...prev];
-            newMessages[newMessages.length - 1] = { 
-              role: 'ai', 
-              text: fullText,
-              sources: chunkResponse.candidates?.[0]?.groundingMetadata?.groundingChunks
-            };
-            return newMessages;
-          });
-        }
-      }
+      setMessages(prev => [...prev, { 
+        role: 'ai', 
+        text: response.text,
+        sources: response.groundingMetadata?.groundingChunks
+      }]);
     } catch (e) {
-      setMessages(prev => [...prev, { role: 'ai', text: 'Sincronizzazione fallita. Database offline.' }]);
+      setMessages(prev => [...prev, { role: 'ai', text: 'Sincronizzazione fallita. Database offline o errore di connessione.' }]);
     } finally { setIsTyping(false); }
   };
 
@@ -79,13 +51,12 @@ const ChatBot: React.FC = () => {
               </h3>
               <p className="text-[8px] text-slate-500 font-mono mt-0.5 uppercase tracking-widest">Neural Support Enabled</p>
             </div>
-            {location && <span className="text-[8px] bg-[#00FF66]/20 text-[#00FF66] px-2 py-1 rounded-full font-mono uppercase">GPS_ACTIVE</span>}
           </div>
 
           <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 no-scrollbar">
             {messages.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-widest opacity-60">Sincronizzazione completata.<br/>Chiedimi analisi o centri vicini.</p>
+                <p className="text-[#00FF66] font-mono text-[10px] uppercase tracking-widest opacity-60">Sincronizzazione completata.<br/>Chiedimi analisi o consigli.</p>
               </div>
             )}
             {messages.map((msg, i) => (
