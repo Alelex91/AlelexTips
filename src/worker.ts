@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 interface Env {
@@ -14,7 +13,11 @@ export default {
 
     // 1. API Health Check
     if (url.pathname === "/api/health") {
-      return new Response(JSON.stringify({ ok: true, status: "NeoTip Oracle Online" }), {
+      return new Response(JSON.stringify({ 
+        ok: true, 
+        status: "NeoTip Oracle Online",
+        timestamp: new Date().toISOString()
+      }), {
         headers: { 
           "Content-Type": "application/json",
           "Access-Control-Allow-Origin": "*" 
@@ -22,15 +25,16 @@ export default {
       });
     }
 
-    // 2. Oracle Sync Proxy (Post per Gemini)
+    // 2. Oracle Sync Proxy (Backend per Gemini)
     if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
       try {
-        const { prompt, model = "gemini-3-flash-preview", config = {} } = await request.json() as any;
+        const body = await request.json() as any;
+        const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
 
         if (!env.GEMINI_API_KEY) {
           return new Response(JSON.stringify({ 
             ok: false, 
-            error: "Configurazione Server Errata: Chiave API mancante nei Secret di Cloudflare." 
+            error: "Chiave API mancante. Configura GEMINI_API_KEY nei Secret di Cloudflare." 
           }), { 
             status: 500,
             headers: { "Content-Type": "application/json" }
@@ -56,22 +60,21 @@ export default {
         });
 
       } catch (error: any) {
-        return new Response(JSON.stringify({ ok: false, error: error.message }), { 
+        return new Response(JSON.stringify({ 
+          ok: false, 
+          error: error.message || "Errore interno del server Oracle" 
+        }), { 
           status: 500,
           headers: { "Content-Type": "application/json" }
         });
       }
     }
 
-    // 3. Servizio Asset Statici (Vite)
-    // Se non è una rotta API, prova a servire il file statico o la index.html
+    // 3. Servizio Asset Statici (Frontend React)
+    // Grazie a run_worker_first = ["/api/*"], questo codice viene eseguito
+    // per tutte le rotte che non iniziano con /api/
     try {
-      const assetResponse = await env.ASSETS.fetch(request);
-      if (assetResponse.status === 404) {
-        // Fallback SPA per rotte React tipo /history o /combos
-        return await env.ASSETS.fetch(new Request(new URL("/", request.url)));
-      }
-      return assetResponse;
+      return await env.ASSETS.fetch(request);
     } catch (e) {
       return new Response("Asset fetch error", { status: 500 });
     }
