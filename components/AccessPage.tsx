@@ -35,9 +35,9 @@ const AccessPage: React.FC<Props> = ({ onAccessGranted }) => {
     const cleanEmail = email.trim().toLowerCase();
     const cleanPassword = password.trim();
 
-    // Simulazione controllo credenziali richieste
+    // Simulazione controllo credenziali richieste: AGGIORNATE
     setTimeout(() => {
-      if (cleanEmail === 'alelex91@gmail.com' && cleanPassword === 'Delpiero10') {
+      if (cleanEmail === 'alelex91@gmail.com' && cleanPassword === 'alessandro91') {
         localStorage.setItem('neotip_authorized', 'true');
         onAccessGranted();
       } else {
