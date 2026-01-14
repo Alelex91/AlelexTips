@@ -1,5 +1,5 @@
 
-export type SportType = 'Football' | 'Basketball' | 'Tennis' | 'Volley' | 'All';
+export type SportType = 'Football' | 'Basketball' | 'Tennis' | 'Volley' | 'Rugby' | 'F1' | 'MotoGP' | 'All';
 
 export interface Match {
   id: string;

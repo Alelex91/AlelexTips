@@ -1,191 +1,173 @@
 
-import { Schedina } from "../types";
-
-interface OracleResponse {
-  ok: boolean;
-  text?: string;
-  error?: string;
-  groundingMetadata?: any;
-}
+// BettingService using @google/genai to provide betting predictions and real-time support.
+import { GoogleGenAI } from "@google/genai";
+import { Schedina, Prediction } from "../types";
 
 export class BettingService {
-  private async callOracle(prompt: string, config: any = {}): Promise<OracleResponse> {
-    try {
-      const response = await fetch("/api/oracle/sync", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, config })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json() as OracleResponse;
-        throw new Error(errData.error || `HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json() as OracleResponse;
-      if (!data.ok) throw new Error(data.error || "Sincronizzazione fallita.");
-      return data;
-    } catch (error: any) {
-      console.error("Oracle Call Error:", error);
-      return { ok: false, error: error.message };
-    }
+  // Use environment variable directly as required.
+  private getAI() {
+    return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
   /**
-   * Pulisce la risposta dell'IA rimuovendo markdown, citazioni di ricerca [1][2], e caratteri sporchi.
-   * Restituisce sempre una stringa, gestendo i casi di undefined.
+   * Pulisce la risposta dell'IA rimuovendo blocchi markdown e testo superfluo
+   * per estrarre solo l'oggetto JSON valido.
    */
   private cleanJsonResponse(text: string | undefined): string {
-    if (!text || typeof text !== 'string') return "";
+    if (!text) return "";
     
-    // 1. Rimuove blocchi di codice markdown
-    let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    // Rimuove blocchi di pensiero <thought>...</thought> se presenti
+    let cleaned = text.replace(/<thought>[\s\S]*?<\/thought>/g, "");
     
-    // 2. Rimuove citazioni di Google Search (es: [1], [2], [1, 2], [1][2])
-    cleaned = cleaned.replace(/\[\d+(?:,\s*\d+)*\]/g, "");
-    cleaned = cleaned.replace(/\[\d+\]/g, "");
-
-    // 3. Estrae solo il contenuto tra la prima { e l'ultima }
+    // Cerca il primo { e l'ultimo }
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     
-    if (firstBrace === -1 || lastBrace === -1) {
-      // Se non c'è un oggetto JSON valido, prova a restituire il testo pulito o stringa vuota
-      return cleaned.startsWith('{') ? cleaned : "";
-    }
-
+    if (firstBrace === -1 || lastBrace === -1) return cleaned;
+    
+    // Estrae solo la parte JSON
     cleaned = cleaned.substring(firstBrace, lastBrace + 1);
-
-    // 4. Rimuove caratteri di controllo non stampabili
-    // eslint-disable-next-line no-control-regex
-    cleaned = cleaned.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
-
+    
+    // Rimuove eventuali citazioni di grounding [1], [2], ecc. che rompono il JSON
+    cleaned = cleaned.replace(/\[\d+(?:,\s*\d+)*\]/g, "");
+    
     return cleaned;
   }
 
+  // Implementation of generateDailySchedina
+  // This function fetches real-time sports data using Google Search and returns it as a structured Schedina object.
   async generateDailySchedina(): Promise<Schedina> {
-    const today = new Date();
-    const tomorrow = new Date(today);
-    tomorrow.setDate(today.getDate() + 1);
-
-    const todayISO = today.toISOString().split('T')[0];
-    const tomorrowISO = tomorrow.toISOString().split('T')[0];
+    const ai = this.getAI();
+    const now = new Date();
+    const today = now.toLocaleDateString('en-CA'); 
     
-    const prompt = `SEARCH FOR REAL UPCOMING MATCHES FOR ${todayISO} AND ${tomorrowISO}.
-    STRICTLY RETURN A JSON OBJECT ONLY. NO CITATIONS. NO MARKDOWN.
+    const prompt = `SEARCH GOOGLE FOR REAL SPORTS MATCHES HAPPENING TODAY (${today}) AND TOMORROW.
+    Focus on: Serie A, Premier League, La Liga, Bundesliga, NBA, ATP/WTA Tennis.
     
-    TARGET JSON:
+    You MUST return ONLY a valid JSON object in this exact format, with NO additional text or markdown blocks:
     {
       "predictions": [
         {
           "match": {
-            "homeTeam": "Team Name",
-            "awayTeam": "Team Name",
-            "league": "League",
+            "id": "unique_string",
+            "homeTeam": "Real Team A",
+            "awayTeam": "Real Team B",
+            "league": "League Name",
             "time": "HH:MM",
             "date": "YYYY-MM-DD",
             "sport": "Football"
           },
-          "bet": "Esito",
-          "odds": 1.95,
+          "bet": "Bet Type (e.g. 1, X2, Over 2.5)",
+          "odds": 1.85,
           "confidence": 85,
-          "reasoning": "Analysis",
+          "reasoning": "Quick analysis in Italian",
+          "marketType": "1X2",
           "statistics": {
+            "recentForm": "W-D-W",
             "winProbability": 70,
-            "recentForm": "W-W-D",
             "recommendedScore": "2-1"
           }
         }
       ],
-      "dailyCombos": [
-        {
-          "title": "NEURAL ACCUMULATOR",
-          "type": "Safe",
-          "predictions": [],
-          "totalOdds": 2.25,
-          "reasoning": "Summary"
-        }
-      ],
-      "totalOdds": 2.25
+      "dailyCombos": [],
+      "totalOdds": 5.40
     }`;
 
-    const config = {
-      model: "gemini-3-flash-preview",
-      systemInstruction: "You are the NeoTip Oracle. Output ONLY raw JSON. NEVER include citations like [1] or [2].",
-      tools: [{ googleSearch: {} }]
-    };
-
     try {
-      const data = await this.callOracle(prompt, config);
-      if (!data.ok) throw new Error(data.error);
-      
-      const cleanedText = this.cleanJsonResponse(data.text);
-      if (!cleanedText) throw new Error("Format error: Cleaned response is empty");
-      
-      const parsedData = JSON.parse(cleanedText);
-      return this.validateData(parsedData);
-    } catch (e) {
-      console.warn("Primary Oracle Sync failed, attempting Recovery Matrix...", e);
-      return this.recoveryMatrix(todayISO, tomorrowISO);
-    }
-  }
+      // Usiamo gemini-3-flash-preview per maggiore velocità e stabilità con i tool
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: {
+          tools: [{ googleSearch: {} }],
+          // Non usiamo responseMimeType: "application/json" qui perché con googleSearch 
+          // a volte causa conflitti nei metadati di grounding, preferiamo pulire il testo.
+          systemInstruction: "Sei NEOTIP_ORACLE. Fornisci solo dati REALI e verificati. Rispondi esclusivamente in formato JSON."
+        }
+      });
 
-  private async recoveryMatrix(today: string, tomorrow: string): Promise<Schedina> {
-    const prompt = `Provide 5 generic upcoming matches for ${today} or ${tomorrow} for Serie A, Premier League, NBA. Return JSON ONLY.`;
-    const config = {
-      model: "gemini-3-flash-preview",
-      systemInstruction: "Output ONLY valid JSON. No citations."
-    };
+      const rawText = response.text;
+      const cleanedJson = this.cleanJsonResponse(rawText);
+      
+      if (!cleanedJson) throw new Error("Risposta vuota dall'Oracolo.");
+      
+      const data = JSON.parse(cleanedJson) as Schedina;
+      
+      // Estrazione sorgenti per trasparenza
+      const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      if (groundingChunks) {
+        data.sources = groundingChunks
+          .map((chunk: any) => ({
+            title: chunk.web?.title || 'Dati Verificati',
+            uri: chunk.web?.uri || ''
+          }))
+          .filter((source: any) => source.uri !== '');
+      }
 
-    try {
-      const data = await this.callOracle(prompt, config);
-      const cleanedText = this.cleanJsonResponse(data.text);
-      if (!cleanedText) return this.validateData({});
-      const parsedData = JSON.parse(cleanedText);
-      return this.validateData(parsedData);
-    } catch (e) {
-      console.error("Recovery Matrix failed:", e);
-      return this.validateData({});
+      data.lastUpdated = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      return this.validateData(data);
+    } catch (error) {
+      console.error("Error during Oracle sync:", error);
+      // In caso di errore di rete o parsing, lanciamo un errore leggibile
+      throw new Error("Errore Sincronizzazione: " + (error instanceof Error ? error.message : "Connessione Oracle instabile."));
     }
   }
 
   private validateData(data: any): Schedina {
-    return { 
-      predictions: Array.isArray(data?.predictions) ? data.predictions : [],
-      dailyCombos: Array.isArray(data?.dailyCombos) ? data.dailyCombos : [],
-      totalOdds: typeof data?.totalOdds === 'number' ? data.totalOdds : 0,
-      lastUpdated: new Date().toLocaleTimeString('it-IT') 
-    };
+    // Assicuriamoci che i campi obbligatori esistano per evitare crash nella UI
+    if (!data.predictions) data.predictions = [];
+    data.predictions = data.predictions.map((p: any) => ({
+      ...p,
+      match: {
+        id: p.match?.id || Math.random().toString(36).substr(2, 9),
+        homeTeam: p.match?.homeTeam || "Team A",
+        awayTeam: p.match?.awayTeam || "Team B",
+        league: p.match?.league || "Unknown League",
+        time: p.match?.time || "--:--",
+        date: p.match?.date || new Date().toISOString().split('T')[0],
+        sport: p.match?.sport || "Football"
+      },
+      bet: p.bet || "TBD",
+      odds: p.odds || 1.0,
+      confidence: p.confidence || 50,
+      statistics: p.statistics || { recentForm: "N/A", winProbability: 50 }
+    }));
+    return data;
   }
 
-  async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<{ text: string; groundingMetadata?: any }> {
-    const config: any = {
-      systemInstruction: "Sei l'Oracolo di NeoTip. Usa Google Search.",
-      tools: [{ googleSearch: {} }]
-    };
+  // Implementation of sendMessageToChat for real-time user queries.
+  async sendMessageToChat(message: string, lat?: number, lng?: number) {
+    const ai = this.getAI();
+    const tools: any[] = [{ googleSearch: {} }];
+    let toolConfig: any = undefined;
 
-    // Aggiungi supporto per Maps grounding se le coordinate sono presenti
     if (lat !== undefined && lng !== undefined) {
-      config.tools.push({ googleMaps: {} });
-      config.toolConfig = {
+      tools.push({ googleMaps: {} });
+      toolConfig = {
         retrievalConfig: {
           latLng: { latitude: lat, longitude: lng }
         }
       };
-      config.model = "gemini-2.5-flash-preview"; // Maps richiede 2.5
     }
 
     try {
-      const data = await this.callOracle(message, config);
-      const outputText: string = data.text || data.error || "L'Oracolo non ha risposto.";
-      
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: message,
+        config: {
+          tools: tools,
+          toolConfig: toolConfig,
+          systemInstruction: "Sei NEOTIP_ORACLE, esperto di sport e scommesse. Rispondi in italiano, sii preciso, usa dati reali da Google Search."
+        }
+      });
+
       return {
-        text: outputText,
-        groundingMetadata: data.groundingMetadata || null
+        text: response.text || "Database momentaneamente non raggiungibile.",
+        groundingMetadata: response.candidates?.[0]?.groundingMetadata
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
-        text: `Errore Matrix: ${e.message}`,
+        text: "Errore di connessione al nodo centrale. Riprova tra poco.",
         groundingMetadata: null
       };
     }
