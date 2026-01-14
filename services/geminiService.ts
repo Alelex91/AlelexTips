@@ -15,28 +15,35 @@ export class BettingService {
   }
 
   /**
-   * Pulisce la risposta dell'IA rimuovendo blocchi markdown e citazioni di Google Search.
-   * La pulizia è ora molto più aggressiva per garantire che JSON.parse non fallisca.
+   * Pulisce la risposta dell'IA in modo ultra-aggressivo.
+   * Rimuove markdown, citazioni di ricerca [1][2], e caratteri di controllo invisibili.
    */
   private cleanJsonResponse(text: string): string {
     if (!text) return "";
     
-    // 1. Rimuove i blocchi di codice Markdown (```json ... ``` o ``` ... ```)
+    // 1. Rimuove blocchi di codice markdown
     let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    // 2. Rimuove le citazioni di Google Search che spesso appaiono come [1], [2], [1,2]
-    // Queste citazioni spesso finiscono dentro le stringhe JSON o subito dopo, rompendo il formato.
+    // 2. Rimuove citazioni di Google Search (es: [1], [2], [1, 2], [1][2])
+    // Queste sono la causa principale del fallimento del parsing
+    cleaned = cleaned.replace(/\[\d+(?:,\s*\d+)*\]/g, "");
     cleaned = cleaned.replace(/\[\d+\]/g, "");
-    cleaned = cleaned.replace(/\[\d+,\s*\d+\]/g, "");
 
-    // 3. Estrae solo la porzione di testo compresa tra la prima '{' e l'ultima '}'
-    // Questo elimina eventuale testo discorsivo che Gemini potrebbe aggiungere per errore.
+    // 3. Estrae solo il contenuto tra la prima { e l'ultima }
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     
-    if (firstBrace !== -1 && lastBrace !== -1) {
-      return cleaned.substring(firstBrace, lastBrace + 1);
+    if (firstBrace === -1 || lastBrace === -1) {
+      console.error("No JSON braces found in response:", text);
+      return "";
     }
+
+    cleaned = cleaned.substring(firstBrace, lastBrace + 1);
+
+    // 4. Rimuove caratteri di controllo non stampabili che potrebbero corrompere il JSON
+    // eslint-disable-next-line no-control-regex
+    cleaned = cleaned.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
+
     return cleaned;
   }
 
@@ -48,30 +55,26 @@ export class BettingService {
     const todayISO = today.toISOString().split('T')[0];
     const tomorrowISO = tomorrow.toISOString().split('T')[0];
     
-    // Prompt rinforzato con istruzioni di non-conversazione
+    // Prompt ancora più autoritario e specifico sul formato
     const prompt = `SEARCH FOR REAL UPCOMING MATCHES FOR ${todayISO} AND ${tomorrowISO}.
-    Focus on major leagues (Serie A, Premier, NBA, Tennis ATP).
+    STRICTLY RETURN A JSON OBJECT ONLY. NO CITATIONS. NO MARKDOWN. NO COMMENTS.
     
-    RULES:
-    - ONLY output valid JSON.
-    - NO text before or after the JSON.
-    - DO NOT use citations like [1] or [2].
-    - Use the following exact JSON structure:
+    TARGET JSON STRUCTURE:
     {
       "predictions": [
         {
           "match": {
-            "homeTeam": "Team A",
-            "awayTeam": "Team B",
-            "league": "League",
+            "homeTeam": "Full Team Name",
+            "awayTeam": "Full Team Name",
+            "league": "Leauge Name",
             "time": "HH:MM",
             "date": "YYYY-MM-DD",
             "sport": "Football"
           },
-          "bet": "1X2 or Over/Under",
-          "odds": 1.85,
+          "bet": "Esito",
+          "odds": 1.95,
           "confidence": 85,
-          "reasoning": "Brief technical analysis",
+          "reasoning": "Analysis without citations",
           "statistics": {
             "winProbability": 70,
             "recentForm": "W-W-D",
@@ -84,16 +87,17 @@ export class BettingService {
           "title": "NEURAL ACCUMULATOR",
           "type": "Safe",
           "predictions": [],
-          "totalOdds": 2.20,
-          "reasoning": "Summary of safety"
+          "totalOdds": 2.25,
+          "reasoning": "Short summary"
         }
-      ]
+      ],
+      "totalOdds": 2.25
     }`;
 
     const config = {
-      // Usiamo gemini-3-flash-preview che è il più aggiornato
       model: "gemini-3-flash-preview",
-      systemInstruction: "You are the NeoTip Oracle. You are a data-driven sports betting analyst. You MUST ONLY respond with raw JSON data. NO citations, NO chat, NO explanations outside the JSON.",
+      // Istruzione di sistema cruciale: vieta le citazioni che rompono il JSON
+      systemInstruction: "You are the NeoTip Oracle. Output ONLY pure raw JSON. NEVER include citations like [1] or [2]. NEVER include text explanations outside the JSON structure. If you find no matches, return an empty predictions array.",
       tools: [{ googleSearch: {} }]
     };
 
@@ -101,9 +105,11 @@ export class BettingService {
     
     try {
       const cleanedText = this.cleanJsonResponse(data.text);
+      if (!cleanedText) throw new Error("Risposta vuota o non valida dall'Oracolo.");
+      
       const parsedData = JSON.parse(cleanedText);
       
-      // Validazione base dei dati ricevuti
+      // Assicuriamo l'integrità dei dati minimi richiesti dall'interfaccia
       return { 
         predictions: Array.isArray(parsedData.predictions) ? parsedData.predictions : [],
         dailyCombos: Array.isArray(parsedData.dailyCombos) ? parsedData.dailyCombos : [],
@@ -111,15 +117,15 @@ export class BettingService {
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (e) {
-      console.error("JSON PARSE ERROR:", e);
-      console.error("RAW DATA FROM ORACLE:", data.text);
-      throw new Error("L'Oracolo ha restituito dati in un formato non leggibile. Clicca 'Sincronizza' in alto a destra per riprovare.");
+      console.error("CRITICAL PARSE ERROR:", e);
+      console.debug("RAW OUTPUT FROM GEMINI:", data.text);
+      throw new Error("L'Oracolo è temporaneamente instabile (errore di formato). Riprova tra pochi istanti premendo il tasto Sync.");
     }
   }
 
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
     const config = {
-      systemInstruction: "Sei l'Oracolo di NeoTip, un esperto di scommesse cyberpunk. Usa Google Search per dati aggiornati. Sii conciso e professionale.",
+      systemInstruction: "Sei l'Oracolo di NeoTip, un analista di scommesse cyberpunk. Usa Google Search per dati reali. Fornisci risposte concise e professionali.",
       tools: [{ googleSearch: {} }]
     };
 
