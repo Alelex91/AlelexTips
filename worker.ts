@@ -28,10 +28,11 @@ export default {
     if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
       try {
         const body = await request.json() as any;
-        const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
+        const { prompt, config = {} } = body;
+        const modelToUse = config.model || "gemini-3-flash-preview";
 
         if (!env.GEMINI_API_KEY) {
-          return new Response(JSON.stringify({ ok: false, error: "CHIAVE API NON TROVATA: Assicurati di aver aggiunto GEMINI_API_KEY nei Secret di Cloudflare." }), { 
+          return new Response(JSON.stringify({ ok: false, error: "GEMINI_API_KEY non configurata." }), { 
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -39,14 +40,12 @@ export default {
 
         const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
         const response = await ai.models.generateContent({
-          model: model,
+          model: modelToUse,
           contents: prompt,
           config: config
         });
 
-        if (!response.text) {
-          throw new Error("L'IA ha restituito una risposta vuota.");
-        }
+        if (!response.text) throw new Error("Risposta vuota dall'IA.");
 
         return new Response(JSON.stringify({ 
           ok: true, 
@@ -57,8 +56,7 @@ export default {
         });
 
       } catch (error: any) {
-        console.error("Oracle Sync Worker Error:", error.message);
-        return new Response(JSON.stringify({ ok: false, error: "Errore Oracle: " + error.message }), { 
+        return new Response(JSON.stringify({ ok: false, error: error.message }), { 
           status: 500,
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });

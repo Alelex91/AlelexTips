@@ -24,7 +24,7 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api/health") {
-        return new Response(JSON.stringify({ ok: true, status: "Oracle Online" }), {
+        return new Response(JSON.stringify({ ok: true, status: "Oracle Matrix Online" }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
@@ -32,10 +32,11 @@ export default {
       if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
         try {
           const body = await request.json() as any;
-          const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
+          const { prompt, config = {} } = body;
+          const modelToUse = config.model || "gemini-3-flash-preview";
 
           if (!env.GEMINI_API_KEY) {
-            return new Response(JSON.stringify({ ok: false, error: "GEMINI_API_KEY mancante nei segreti di Cloudflare." }), { 
+            return new Response(JSON.stringify({ ok: false, error: "CHIAVE API MANCANTE: Controlla i segreti di Cloudflare." }), { 
               status: 500,
               headers: { "Content-Type": "application/json", ...corsHeaders }
             });
@@ -43,13 +44,13 @@ export default {
 
           const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
           const response = await ai.models.generateContent({
-            model: model,
+            model: modelToUse,
             contents: prompt,
             config: config
           });
 
           if (!response.text) {
-            throw new Error("L'IA non ha prodotto testo.");
+            throw new Error("L'IA non ha generato alcun contenuto.");
           }
 
           return new Response(JSON.stringify({ 
@@ -60,7 +61,8 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (error: any) {
-          return new Response(JSON.stringify({ ok: false, error: "Errore Oracle: " + error.message }), { 
+          console.error("Worker API Error:", error.message);
+          return new Response(JSON.stringify({ ok: false, error: "Errore durante la connessione all'Oracolo: " + error.message }), { 
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -68,6 +70,7 @@ export default {
       }
     }
 
+    // Gestione Asset Statici
     try {
       const response = await env.ASSETS.fetch(request);
       if (response.status === 404) {
@@ -75,7 +78,7 @@ export default {
       }
       return response;
     } catch (e) {
-      return new Response("Errore caricamento asset.", { status: 500 });
+      return new Response("Errore caricamento interfaccia.", { status: 500 });
     }
   },
 };
