@@ -15,14 +15,19 @@ export class BettingService {
   }
 
   /**
-   * Pulisce la risposta dell'IA rimuovendo blocchi markdown ```json ... ``` 
-   * o testo discorsivo prima/dopo il JSON.
+   * Pulisce la risposta dell'IA rimuovendo blocchi markdown e soprattutto
+   * le citazioni di Google Search (es. [1], [2]) che rompono il JSON.
    */
   private cleanJsonResponse(text: string): string {
-    // Rimuove blocchi ```json o ``` 
+    // 1. Rimuove blocchi ```json o ``` 
     let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
     
-    // Cerca la prima parentesi graffa e l'ultima per estrarre solo l'oggetto JSON
+    // 2. Rimuove citazioni tipo [1], [2], [12] che Gemini inserisce con Google Search
+    // Queste sono la causa principale del fallimento del parsing JSON
+    cleaned = cleaned.replace(/\[\d+\]/g, "");
+    cleaned = cleaned.replace(/\[\d+,\s*\d+\]/g, "");
+
+    // 3. Estrae solo l'oggetto JSON principale {}
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
     
@@ -40,49 +45,45 @@ export class BettingService {
     const todayISO = today.toISOString().split('T')[0];
     const tomorrowISO = tomorrow.toISOString().split('T')[0];
     
-    // Prompt ultra-specifico per forzare il formato corretto
-    const prompt = `AGISCI COME UN ESPERTO DI BETTING E DATA ANALYST.
-    USA GOOGLE SEARCH per trovare i match REALI del ${todayISO} e ${tomorrowISO}.
-    Concentrati su: Serie A, Premier League, Liga, Bundesliga, NBA, Tennis ATP.
-
-    RISPONDI ESCLUSIVAMENTE IN FORMATO JSON (NIENTE TESTO PRIMA O DOPO).
-    SCHEMA RICHIESTO:
+    const prompt = `SEARCH FOR REAL UPCOMING MATCHES for ${todayISO} and ${tomorrowISO}.
+    Leagues: Serie A, Premier League, La Liga, Bundesliga, NBA, Tennis ATP.
+    
+    REQUIRED JSON STRUCTURE:
     {
       "predictions": [
         {
           "match": {
-            "homeTeam": "Nome Casa",
-            "awayTeam": "Nome Trasferta",
-            "league": "Campionato",
+            "homeTeam": "Home",
+            "awayTeam": "Away",
+            "league": "League Name",
             "time": "HH:MM",
             "date": "YYYY-MM-DD",
-            "sport": "Football" (o "Basketball", "Tennis")
+            "sport": "Football"
           },
-          "bet": "Esito (es. 1, X2, Over 2.5)",
-          "odds": 1.85,
-          "confidence": 85,
-          "reasoning": "Breve analisi tattica",
+          "bet": "Esito (1, X, 2, Over 2.5)",
+          "odds": 1.90,
+          "confidence": 80,
+          "reasoning": "Quick analysis",
           "statistics": {
             "winProbability": 70,
-            "recentForm": "W-D-W",
+            "recentForm": "W-D-L",
             "recommendedScore": "2-1"
           }
         }
       ],
       "dailyCombos": [
         {
-          "title": "RADDOPPIO NEURALE",
+          "title": "NEURAL COMBO",
           "type": "Safe",
           "predictions": [],
-          "totalOdds": 2.10,
-          "reasoning": "Perché questa combo è sicura"
+          "totalOdds": 2.50,
+          "reasoning": "Explanation"
         }
       ]
     }`;
 
     const config = {
-      // Nota: non usiamo responseMimeType: "application/json" qui perché con googleSearch
-      // a volte causa conflitti su alcune versioni del modello. Puliamo il testo manualmente.
+      systemInstruction: "You are a Betting JSON Generator. ONLY output the JSON object. NEVER include citations like [1] or [2] inside JSON strings. NO conversational text.",
       tools: [{ googleSearch: {} }]
     };
 
@@ -92,21 +93,23 @@ export class BettingService {
       const cleanedText = this.cleanJsonResponse(data.text);
       const parsedData = JSON.parse(cleanedText);
       
+      // Assicura che predictions e dailyCombos siano array validi
       return { 
-        predictions: parsedData.predictions || [],
-        dailyCombos: parsedData.dailyCombos || [],
+        predictions: Array.isArray(parsedData.predictions) ? parsedData.predictions : [],
+        dailyCombos: Array.isArray(parsedData.dailyCombos) ? parsedData.dailyCombos : [],
         totalOdds: parsedData.totalOdds || 0,
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (e) {
-      console.error("Errore Parsing Oracolo:", e, "Testo ricevuto:", data.text);
-      throw new Error("L'Oracolo ha inviato dati sporchi. Prova a cliccare di nuovo il tasto Sync.");
+      console.error("DEBUG ORACLE ERROR:", e);
+      console.error("RAW TEXT RECEIVED:", data.text);
+      throw new Error("L'Oracolo ha inviato dati sporchi. Riprova tra 5 secondi.");
     }
   }
 
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
     const config = {
-      systemInstruction: "Sei l'Oracolo di NeoTip. Fornisci analisi sul betting cyberpunk e professionale. Usa Google Search.",
+      systemInstruction: "Sei l'Oracolo di NeoTip. Fornisci analisi sul betting cyberpunk. Usa Google Search.",
       tools: [{ googleSearch: {} }]
     };
 
