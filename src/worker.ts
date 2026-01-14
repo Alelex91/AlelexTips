@@ -1,3 +1,4 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 export interface Env {
@@ -17,12 +18,10 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    // Gestione Preflight CORS
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    // Routing API
     if (url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api/health") {
         return new Response(JSON.stringify({ ok: true, status: "Matrix Online" }), {
@@ -35,65 +34,44 @@ export default {
           const body = await request.json() as any;
           const { prompt, config = {} } = body;
           
-          // Recupero della chiave API dai segreti di ambiente del Worker (env)
-          const apiKey = env.GEMINI_API_KEY;
+          // Utilizza la chiave dai segreti del worker
+          const apiKey = env.GEMINI_API_KEY || process.env.API_KEY;
           
           if (!apiKey) {
-            console.error("ERRORE: GEMINI_API_KEY non configurata nei segreti del Worker.");
-            return new Response(JSON.stringify({ 
-              ok: false, 
-              error: "Configurazione Server Incompleta: Chiave API Oracle (GEMINI_API_KEY) mancante." 
-            }), { 
-              status: 500,
-              headers: { "Content-Type": "application/json", ...corsHeaders }
-            });
+            throw new Error("Chiave API Oracle non configurata nel server.");
           }
 
-          // Inizializzazione del client GoogleGenAI con la chiave dai segreti
           const ai = new GoogleGenAI({ apiKey });
           
-          // Esecuzione della richiesta a Gemini utilizzando il modello specificato o un default sicuro
+          // Chiamata all'IA con il modello pro per massima accuratezza nella ricerca
           const response = await ai.models.generateContent({
-            model: config.model || "gemini-3-flash-preview",
+            model: config.model || "gemini-3-pro-preview",
             contents: prompt,
-            config: config
+            config: {
+              tools: [{ googleSearch: {} }],
+              systemInstruction: "Sei NEOTIP_ORACLE. Fornisci solo dati REALI e verificati. Rispondi esclusivamente in formato JSON. Controlla sempre la data odierna e gli orari dei match."
+            }
           });
-
-          // Estrazione del testo generato e dei metadati di grounding (per Google Search/Maps)
-          const generatedText = response.text;
-          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
 
           return new Response(JSON.stringify({ 
             ok: true, 
-            text: generatedText || "",
-            groundingMetadata: groundingMetadata || null
+            text: response.text,
+            groundingMetadata: response.candidates?.[0]?.groundingMetadata 
           }), {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (error: any) {
-          console.error("Errore durante la sincronizzazione Oracle:", error.message);
-          return new Response(JSON.stringify({ 
-            ok: false, 
-            error: "Errore durante l'elaborazione della richiesta: " + error.message 
-          }), { 
+          console.error("Worker Error:", error.message);
+          return new Response(JSON.stringify({ ok: false, error: error.message }), { 
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
       }
-
-      return new Response(JSON.stringify({ ok: false, error: "Endpoint API non trovato." }), { 
-        status: 404,
-        headers: { "Content-Type": "application/json", ...corsHeaders }
-      });
     }
 
-    // Gestione Asset Statici con Fallback per Single Page Application (SPA)
     try {
       const response = await env.ASSETS.fetch(request);
-      
-      // Se l'asset non è stato trovato (404) e non sembra essere una risorsa statica (non ha estensione),
-      // facciamo il fallback su index.html per permettere al router React di gestire il percorso.
       if (response.status === 404 && !url.pathname.includes('.')) {
         return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
       }
