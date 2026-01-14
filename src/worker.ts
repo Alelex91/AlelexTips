@@ -1,4 +1,3 @@
-
 import { GoogleGenAI } from "@google/genai";
 
 export interface Env {
@@ -18,13 +17,15 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
+    // Gestione Preflight CORS
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Routing API
     if (url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api/health") {
-        return new Response(JSON.stringify({ ok: true, status: "NeoTip Oracle Matrix Online" }), {
+        return new Response(JSON.stringify({ ok: true, status: "Matrix Online" }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
@@ -33,52 +34,72 @@ export default {
         try {
           const body = await request.json() as any;
           const { prompt, config = {} } = body;
-          const modelToUse = config.model || "gemini-3-flash-preview";
-
-          if (!env.GEMINI_API_KEY) {
-            console.error("Worker Error: GEMINI_API_KEY is missing in Cloudflare secrets.");
-            return new Response(JSON.stringify({ ok: false, error: "Chiave API Oracle mancante. Configura GEMINI_API_KEY nei segreti di Cloudflare." }), { 
+          
+          // Recupero della chiave API dai segreti di ambiente del Worker (env)
+          const apiKey = env.GEMINI_API_KEY;
+          
+          if (!apiKey) {
+            console.error("ERRORE: GEMINI_API_KEY non configurata nei segreti del Worker.");
+            return new Response(JSON.stringify({ 
+              ok: false, 
+              error: "Configurazione Server Incompleta: Chiave API Oracle (GEMINI_API_KEY) mancante." 
+            }), { 
               status: 500,
               headers: { "Content-Type": "application/json", ...corsHeaders }
             });
           }
 
-          const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+          // Inizializzazione del client GoogleGenAI con la chiave dai segreti
+          const ai = new GoogleGenAI({ apiKey });
+          
+          // Esecuzione della richiesta a Gemini utilizzando il modello specificato o un default sicuro
           const response = await ai.models.generateContent({
-            model: modelToUse,
+            model: config.model || "gemini-3-flash-preview",
             contents: prompt,
             config: config
           });
 
-          if (!response.text) {
-            throw new Error("L'Oracolo non ha prodotto alcuna risposta testuale.");
-          }
+          // Estrazione del testo generato e dei metadati di grounding (per Google Search/Maps)
+          const generatedText = response.text;
+          const groundingMetadata = response.candidates?.[0]?.groundingMetadata;
 
           return new Response(JSON.stringify({ 
             ok: true, 
-            text: response.text,
-            groundingMetadata: response.candidates?.[0]?.groundingMetadata 
+            text: generatedText || "",
+            groundingMetadata: groundingMetadata || null
           }), {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (error: any) {
-          console.error("Worker API Oracle Error:", error.message);
-          return new Response(JSON.stringify({ ok: false, error: "Connessione Matrix instabile: " + error.message }), { 
+          console.error("Errore durante la sincronizzazione Oracle:", error.message);
+          return new Response(JSON.stringify({ 
+            ok: false, 
+            error: "Errore durante l'elaborazione della richiesta: " + error.message 
+          }), { 
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
       }
+
+      return new Response(JSON.stringify({ ok: false, error: "Endpoint API non trovato." }), { 
+        status: 404,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
+      });
     }
 
+    // Gestione Asset Statici con Fallback per Single Page Application (SPA)
     try {
       const response = await env.ASSETS.fetch(request);
-      if (response.status === 404) {
+      
+      // Se l'asset non è stato trovato (404) e non sembra essere una risorsa statica (non ha estensione),
+      // facciamo il fallback su index.html per permettere al router React di gestire il percorso.
+      if (response.status === 404 && !url.pathname.includes('.')) {
         return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
       }
       return response;
     } catch (e) {
-      return new Response("Errore caricamento asset statici.", { status: 500 });
+      return new Response("Asset Not Found", { status: 404 });
     }
   },
 };

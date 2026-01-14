@@ -21,27 +21,38 @@
     
     <style>
         :root { --neon-green: #00FF66; --dark-bg: #050607; }
+        html, body { 
+            height: 100%;
+            width: 100%;
+            background-color: var(--dark-bg);
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
         body { 
             font-family: 'Inter', sans-serif; 
-            background-color: var(--dark-bg); 
             color: #E8FFF2; 
-            margin: 0; 
-            overflow-x: hidden; 
             -webkit-tap-highlight-color: transparent; 
-            padding-top: env(safe-area-inset-top); 
-            padding-bottom: env(safe-area-inset-bottom);
             user-select: none;
             -webkit-user-select: none;
             -webkit-overflow-scrolling: touch;
+            display: flex;
+            flex-direction: column;
+        }
+        #root {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            width: 100%;
         }
         .glass-morphism { 
-            background: rgba(10, 12, 14, 0.9); 
+            background: rgba(10, 12, 14, 0.92); 
             backdrop-filter: blur(25px); 
             -webkit-backdrop-filter: blur(25px); 
             border: 1px solid rgba(0, 255, 102, 0.1); 
         }
         .neon-text { color: var(--neon-green); text-shadow: 0 0 12px rgba(0, 255, 102, 0.4); }
-        #matrix-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.12; pointer-events: none; }
+        #matrix-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; opacity: 0.15; pointer-events: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
@@ -50,34 +61,28 @@
             cursor: pointer;
         }
         button:active, .clickable:active {
-            transform: scale(0.94);
+            transform: scale(0.96);
             opacity: 0.8;
         }
         
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-        @keyframes neural-shimmer {
-            0% { transform: translateX(-100%); opacity: 0; }
-            50% { opacity: 1; }
-            100% { transform: translateX(200%); opacity: 0; }
-        }
-        @keyframes bar-pulse {
-            0%, 100% { box-shadow: 0 0 15px rgba(0, 255, 102, 0.4); }
-            50% { box-shadow: 0 0 25px rgba(0, 255, 102, 0.7); }
-        }
-
+        
         .animate-fadeIn { animation: fadeIn 0.4s ease-out; }
         .animate-slideUp { animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
-        .neural-bar-shimmer {
-            animation: neural-shimmer 2.5s infinite linear;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
-        }
-        .neural-bar-pulse {
-            animation: bar-pulse 3s infinite ease-in-out;
-        }
         
         .safe-bottom {
-            padding-bottom: calc(env(safe-area-inset-bottom) + 1rem);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+        .safe-top {
+            padding-top: env(safe-area-inset-top);
+        }
+
+        /* Fluid full-width container */
+        .app-container {
+            width: 100%;
+            margin-left: auto;
+            margin-right: auto;
         }
     </style>
 <script type="importmap">
@@ -104,10 +109,10 @@
         resize();
         window.addEventListener('resize', resize);
         const alphabet = '01ｱｲｳｴｵｶｷｸｹｺ0123456789';
-        const fontSize = 14;
+        const fontSize = 16;
         let rainDrops = Array(Math.floor(canvas.width / fontSize)).fill(1);
         const draw = () => {
-            ctx.fillStyle = 'rgba(5, 6, 7, 0.12)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'rgba(5, 6, 7, 0.15)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
             ctx.fillStyle = '#00FF66'; ctx.font = fontSize + 'px monospace';
             rainDrops.forEach((y, i) => {
                 const text = alphabet.charAt(Math.floor(Math.random() * alphabet.length));
@@ -116,7 +121,7 @@
                 rainDrops[i]++;
             });
         };
-        setInterval(draw, 40);
+        setInterval(draw, 45);
     </script>
 </body>
 </html>
