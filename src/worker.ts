@@ -1,52 +1,81 @@
+
 import { GoogleGenAI } from "@google/genai";
 
 export interface Env {
-  ASSETS: { fetch(request: Request): Promise<Response> };
   GEMINI_API_KEY: string;
-}
-
-function json(data: unknown, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
+  ASSETS: {
+    fetch(request: Request): Promise<Response>;
+  };
 }
 
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    const url = new URL(req.url);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    const url = new URL(request.url);
 
-    // ✅ test
-    if (url.pathname === "/api/health") {
-      return json({ ok: true });
+    // Gestione CORS
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
     }
 
-    // ✅ sync oracle
-    if (url.pathname === "/api/oracle/sync") {
-      if (req.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
-
-      const body = await req.json().catch(() => ({} as any));
-      const prompt = body?.prompt ?? "";
-
-      if (!prompt) return json({ ok: false, error: "Missing prompt" }, 400);
-
-      try {
-        const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
-        const resp = await ai.models.generateContent({
-          model: "gemini-2.5-flash",
-          contents: prompt,
+    // API Routes
+    if (url.pathname.startsWith("/api/")) {
+      
+      if (url.pathname === "/api/health") {
+        return new Response(JSON.stringify({ ok: true, status: "Oracle Online" }), {
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
+      }
 
-        return json({ ok: true, text: resp.text });
-      } catch (e: any) {
-        return json({ ok: false, error: e?.message ?? String(e) }, 500);
+      if (url.pathname === "/api/oracle/sync" && request.method === "POST") {
+        try {
+          const body = await request.json() as any;
+          const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
+
+          if (!env.GEMINI_API_KEY) {
+            return new Response(JSON.stringify({ ok: false, error: "Configurazione Server Incompleta: Manca GEMINI_API_KEY." }), { 
+              status: 500,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
+          }
+
+          const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
+          const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: config
+          });
+
+          return new Response(JSON.stringify({ 
+            ok: true, 
+            text: response.text,
+            groundingMetadata: response.candidates?.[0]?.groundingMetadata 
+          }), {
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        } catch (error: any) {
+          return new Response(JSON.stringify({ ok: false, error: "Errore IA: " + error.message }), { 
+            status: 500,
+            headers: { "Content-Type": "application/json", ...corsHeaders }
+          });
+        }
       }
     }
 
-    // ✅ tutto il resto: sito
-    return env.ASSETS.fetch(req);
+    // Servizio Asset Statici per SPA
+    try {
+      const response = await env.ASSETS.fetch(request);
+      if (response.status === 404) {
+        return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
+      }
+      return response;
+    } catch (e) {
+      return new Response("Errore nel caricamento degli asset di NeoTip.", { status: 500 });
+    }
   },
 };

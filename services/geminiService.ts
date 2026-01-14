@@ -14,6 +14,24 @@ export class BettingService {
     return data;
   }
 
+  /**
+   * Pulisce la risposta dell'IA rimuovendo blocchi markdown ```json ... ``` 
+   * o testo discorsivo prima/dopo il JSON.
+   */
+  private cleanJsonResponse(text: string): string {
+    // Rimuove blocchi ```json o ``` 
+    let cleaned = text.replace(/```json/g, "").replace(/```/g, "").trim();
+    
+    // Cerca la prima parentesi graffa e l'ultima per estrarre solo l'oggetto JSON
+    const firstBrace = cleaned.indexOf('{');
+    const lastBrace = cleaned.lastIndexOf('}');
+    
+    if (firstBrace !== -1 && lastBrace !== -1) {
+      return cleaned.substring(firstBrace, lastBrace + 1);
+    }
+    return cleaned;
+  }
+
   async generateDailySchedina(): Promise<Schedina> {
     const today = new Date();
     const tomorrow = new Date(today);
@@ -22,27 +40,67 @@ export class BettingService {
     const todayISO = today.toISOString().split('T')[0];
     const tomorrowISO = tomorrow.toISOString().split('T')[0];
     
-    const prompt = `USA GOOGLE SEARCH per trovare i match sportivi REALI che si giocano OGGI (${todayISO}) e DOMANI (${tomorrowISO}).
-    Focus su: Serie A, Premier League, Liga, Bundesliga, NBA, Tennis ATP/WTA.
-    REGOLE MANDATORIE: Ritorna un JSON con predictions e dailyCombos. Usa formati YYYY-MM-DD.`;
+    // Prompt ultra-specifico per forzare il formato corretto
+    const prompt = `AGISCI COME UN ESPERTO DI BETTING E DATA ANALYST.
+    USA GOOGLE SEARCH per trovare i match REALI del ${todayISO} e ${tomorrowISO}.
+    Concentrati su: Serie A, Premier League, Liga, Bundesliga, NBA, Tennis ATP.
+
+    RISPONDI ESCLUSIVAMENTE IN FORMATO JSON (NIENTE TESTO PRIMA O DOPO).
+    SCHEMA RICHIESTO:
+    {
+      "predictions": [
+        {
+          "match": {
+            "homeTeam": "Nome Casa",
+            "awayTeam": "Nome Trasferta",
+            "league": "Campionato",
+            "time": "HH:MM",
+            "date": "YYYY-MM-DD",
+            "sport": "Football" (o "Basketball", "Tennis")
+          },
+          "bet": "Esito (es. 1, X2, Over 2.5)",
+          "odds": 1.85,
+          "confidence": 85,
+          "reasoning": "Breve analisi tattica",
+          "statistics": {
+            "winProbability": 70,
+            "recentForm": "W-D-W",
+            "recommendedScore": "2-1"
+          }
+        }
+      ],
+      "dailyCombos": [
+        {
+          "title": "RADDOPPIO NEURALE",
+          "type": "Safe",
+          "predictions": [],
+          "totalOdds": 2.10,
+          "reasoning": "Perché questa combo è sicura"
+        }
+      ]
+    }`;
 
     const config = {
-      responseMimeType: "application/json",
-      tools: [{ googleSearch: {} }],
-      // Il worker non supporta responseSchema complesso via fetch facilmente senza Types pesanti,
-      // ma Gemini 3 Flash capisce bene il JSON richiesto dal prompt.
+      // Nota: non usiamo responseMimeType: "application/json" qui perché con googleSearch
+      // a volte causa conflitti su alcune versioni del modello. Puliamo il testo manualmente.
+      tools: [{ googleSearch: {} }]
     };
 
     const data = await this.callOracle(prompt, config);
     
     try {
-      const parsedData = JSON.parse(data.text);
+      const cleanedText = this.cleanJsonResponse(data.text);
+      const parsedData = JSON.parse(cleanedText);
+      
       return { 
-        ...parsedData, 
+        predictions: parsedData.predictions || [],
+        dailyCombos: parsedData.dailyCombos || [],
+        totalOdds: parsedData.totalOdds || 0,
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
     } catch (e) {
-      throw new Error("L'Oracolo ha inviato dati non validi. Riprova.");
+      console.error("Errore Parsing Oracolo:", e, "Testo ricevuto:", data.text);
+      throw new Error("L'Oracolo ha inviato dati sporchi. Prova a cliccare di nuovo il tasto Sync.");
     }
   }
 
