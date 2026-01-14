@@ -2,9 +2,6 @@
 import { Schedina, Prediction } from "../types";
 
 export class BettingService {
-  /**
-   * Pulisce la risposta dell'IA rimuovendo blocchi markdown e testo superfluo.
-   */
   private cleanJsonResponse(text: string | undefined): string {
     if (!text) return "";
     let cleaned = text.replace(/<thought>[\s\S]*?<\/thought>/g, "");
@@ -16,9 +13,6 @@ export class BettingService {
     return cleaned;
   }
 
-  /**
-   * Richiede la generazione della schedina giornaliera tramite il proxy API.
-   */
   async generateDailySchedina(): Promise<Schedina> {
     const now = new Date();
     const today = now.toLocaleDateString('en-CA'); 
@@ -26,37 +20,39 @@ export class BettingService {
 
     const prompt = `DATA ODIERNA: ${today}. ORA ATTUALE: ${currentTime} (fuso orario Italia).
     
-    USA GOOGLE SEARCH PER TROVARE I MATCH REALI DI OGGI E DOMANI.
+    USA GOOGLE SEARCH PER IDENTIFICARE MATCH REALI DI OGGI E DOMANI.
     Focus: Serie A, Premier League, La Liga, Bundesliga, Champions League, NBA, Tennis ATP.
     
-    REGOLE STRINGENTI:
-    1. NON inventare match. Se non trovi eventi, lascia l'array vuoto.
-    2. Includi solo match che iniziano DOPO le ${currentTime} di oggi o domani.
-    3. Verifica le quote attuali su siti come Eurobet, Snai o Bet365 tramite ricerca.
-    4. Restituisci SOLO un oggetto JSON valido.
+    REGOLE DI ANALISI PROFONDA:
+    1. Per ogni match, analizza xG (Expected Goals), statistiche d'attacco/difesa e formazioni.
+    2. GIUSTIFICA IL RISULTATO ESATTO: Spiega dettagliatamente perché consigli quel punteggio specifico (es. '2-1 scelto perché la squadra di casa segna il 60% dei gol nel secondo tempo e gli ospiti hanno la difesa titolare infortunata').
+    3. Restituisci SOLO un oggetto JSON valido.
     
     SCHEMA JSON:
     {
       "predictions": [
         {
           "match": {
-            "id": "string_univoca",
-            "homeTeam": "Nome Squadra Casa",
-            "awayTeam": "Nome Squadra Trasferta",
-            "league": "Nome Lega",
+            "id": "string",
+            "homeTeam": "Nome",
+            "awayTeam": "Nome",
+            "league": "Lega",
             "time": "HH:MM",
             "date": "YYYY-MM-DD",
             "sport": "Football"
           },
-          "bet": "Pronostico (es. 1, Over 2.5, Goal)",
+          "bet": "1X2/Over/Goal",
           "odds": 1.85,
           "confidence": 85,
-          "reasoning": "Breve analisi tecnica in italiano",
+          "reasoning": "Analisi generale del match",
           "marketType": "1X2",
           "statistics": {
             "recentForm": "W-D-L",
             "winProbability": 70,
-            "recommendedScore": "2-1"
+            "recommendedScore": "2-1",
+            "scoreReasoning": "SPIEGAZIONE DETTAGLIATA E TATTICA DEL RISULTATO ESATTO",
+            "avgGoals": "2.8",
+            "tacticalInsight": "Analisi tattica avanzata (es. pressing alto, contropiede)"
           }
         }
       ],
@@ -75,23 +71,43 @@ export class BettingService {
       });
 
       if (!response.ok) {
-        const errData = await response.json();
-        throw new Error(errData.error || "Errore di rete");
+        let errorMessage = "Errore di connessione al nodo Oracle.";
+        
+        try {
+          const errData = await response.json();
+          errorMessage = errData.error || errorMessage;
+        } catch (e) {
+          // Fallback se la risposta non è JSON
+          if (response.status === 503) {
+            errorMessage = "[ORC-503] Sistema in Manutenzione: Chiave API Oracle mancante o scaduta.";
+          } else if (response.status === 500) {
+            errorMessage = "[ORC-500] Errore Interno Oracle: Il server ha riscontrato un problema tecnico.";
+          } else if (response.status === 404) {
+            errorMessage = "[ORC-404] Nodo non trovato: L'endpoint Oracle è irraggiungibile.";
+          } else {
+            errorMessage = `[ORC-${response.status}] Errore Sincronizzazione non documentato.`;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
       const cleanedJson = this.cleanJsonResponse(result.text);
       
-      if (!cleanedJson) throw new Error("Risposta vuota dall'Oracolo.");
+      if (!cleanedJson) throw new Error("L'Oracolo ha restituito dati vuoti. Riprova tra pochi istanti.");
       
-      const data = JSON.parse(cleanedJson) as Schedina;
+      let data: Schedina;
+      try {
+        data = JSON.parse(cleanedJson) as Schedina;
+      } catch (e) {
+        throw new Error("Errore Formattazione: I dati ricevuti dall'Oracolo sono corrotti.");
+      }
       
-      // Aggiunta sorgenti di grounding
       const groundingChunks = result.groundingMetadata?.groundingChunks;
       if (groundingChunks) {
         data.sources = groundingChunks
           .map((chunk: any) => ({
-            title: chunk.web?.title || 'Fonte Verificata',
+            title: chunk.web?.title || 'Dati Analitici',
             uri: chunk.web?.uri || ''
           }))
           .filter((s: any) => s.uri !== '');
@@ -100,8 +116,10 @@ export class BettingService {
       data.lastUpdated = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
       return this.validateData(data);
     } catch (error) {
-      console.error("Oracle Sync Error:", error);
-      throw new Error(error instanceof Error ? error.message : "Connessione Oracle interrotta.");
+      console.error("Critical Oracle Sync Error:", error);
+      // Se è già un errore con messaggio specifico lo rilanciamo, altrimenti mettiamo un messaggio di rete
+      const msg = error instanceof Error ? error.message : "Connessione Oracle interrotta. Controlla la tua rete.";
+      throw new Error(msg);
     }
   }
 
@@ -121,7 +139,14 @@ export class BettingService {
       bet: p.bet || "TBD",
       odds: p.odds || 1.0,
       confidence: p.confidence || 50,
-      statistics: p.statistics || { recentForm: "N/A", winProbability: 50 }
+      statistics: {
+        recentForm: p.statistics?.recentForm || "N/A",
+        winProbability: p.statistics?.winProbability || 50,
+        recommendedScore: p.statistics?.recommendedScore || "0-0",
+        scoreReasoning: p.statistics?.scoreReasoning || "Analisi tattica in corso di sincronizzazione...",
+        avgGoals: p.statistics?.avgGoals || "2.5",
+        tacticalInsight: p.statistics?.tacticalInsight || "Bilanciamento tattico neutro rilevato."
+      }
     }));
     return data;
   }
@@ -137,13 +162,17 @@ export class BettingService {
         })
       });
 
+      if (!response.ok) {
+        throw new Error("Chat Node Offline.");
+      }
+
       const result = await response.json();
       return {
-        text: result.text || "Database non raggiungibile.",
+        text: result.text || "Modulo di risposta non inizializzato.",
         groundingMetadata: result.groundingMetadata
       };
     } catch (e) {
-      return { text: "Errore di connessione.", groundingMetadata: null };
+      return { text: "Errore di connessione al nodo di comunicazione Oracle.", groundingMetadata: null };
     }
   }
 }

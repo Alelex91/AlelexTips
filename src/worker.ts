@@ -24,7 +24,7 @@ export default {
 
     if (url.pathname.startsWith("/api/")) {
       if (url.pathname === "/api/health") {
-        return new Response(JSON.stringify({ ok: true, status: "Matrix Online" }), {
+        return new Response(JSON.stringify({ ok: true, status: "Matrix Online", node: "CF-Worker-V8" }), {
           headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
@@ -34,22 +34,27 @@ export default {
           const body = await request.json() as any;
           const { prompt, config = {} } = body;
           
-          // Utilizza la chiave dai segreti del worker
-          const apiKey = env.GEMINI_API_KEY || process.env.API_KEY;
+          // La chiave deve essere impostata tramite 'wrangler secret put GEMINI_API_KEY'
+          const apiKey = env.GEMINI_API_KEY;
           
           if (!apiKey) {
-            throw new Error("Chiave API Oracle non configurata nel server.");
+            return new Response(JSON.stringify({ 
+              ok: false, 
+              error: "Il server richiede una chiave API valida. Configura GEMINI_API_KEY nei segreti di Cloudflare." 
+            }), { 
+              status: 503,
+              headers: { "Content-Type": "application/json", ...corsHeaders }
+            });
           }
 
           const ai = new GoogleGenAI({ apiKey });
           
-          // Chiamata all'IA con il modello pro per massima accuratezza nella ricerca
           const response = await ai.models.generateContent({
             model: config.model || "gemini-3-pro-preview",
             contents: prompt,
             config: {
               tools: [{ googleSearch: {} }],
-              systemInstruction: "Sei NEOTIP_ORACLE. Fornisci solo dati REALI e verificati. Rispondi esclusivamente in formato JSON. Controlla sempre la data odierna e gli orari dei match."
+              systemInstruction: "Sei NEOTIP_ORACLE. Usa Google Search per trovare match sportivi REALI che iniziano dopo l'orario attuale fornito. Fornisci quote aggiornate. Rispondi solo in JSON."
             }
           });
 
@@ -61,8 +66,8 @@ export default {
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (error: any) {
-          console.error("Worker Error:", error.message);
-          return new Response(JSON.stringify({ ok: false, error: error.message }), { 
+          console.error("Critical Oracle Failure:", error.message);
+          return new Response(JSON.stringify({ ok: false, error: "Errore Sincronizzazione: " + error.message }), { 
             status: 500,
             headers: { "Content-Type": "application/json", ...corsHeaders }
           });
@@ -77,7 +82,7 @@ export default {
       }
       return response;
     } catch (e) {
-      return new Response("Asset Not Found", { status: 404 });
+      return new Response("Matrix Asset Not Found", { status: 404 });
     }
   },
 };
