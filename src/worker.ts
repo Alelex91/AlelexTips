@@ -12,12 +12,23 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
-    // 1. Gestione API
+    // Gestione CORS
+    const corsHeaders = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    };
+
+    if (request.method === "OPTIONS") {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    // API Routes
     if (url.pathname.startsWith("/api/")) {
       
       if (url.pathname === "/api/health") {
         return new Response(JSON.stringify({ ok: true, status: "Oracle Online" }), {
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+          headers: { "Content-Type": "application/json", ...corsHeaders }
         });
       }
 
@@ -27,10 +38,9 @@ export default {
           const { prompt, model = "gemini-3-flash-preview", config = {} } = body;
 
           if (!env.GEMINI_API_KEY) {
-            console.error("ERRORE: GEMINI_API_KEY non trovata.");
-            return new Response(JSON.stringify({ error: "Configurazione Server Incompleta: Manca la GEMINI_API_KEY nei Secret di Cloudflare." }), { 
+            return new Response(JSON.stringify({ ok: false, error: "Configurazione Server Incompleta: Manca GEMINI_API_KEY." }), { 
               status: 500,
-              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+              headers: { "Content-Type": "application/json", ...corsHeaders }
             });
           }
 
@@ -46,26 +56,21 @@ export default {
             text: response.text,
             groundingMetadata: response.candidates?.[0]?.groundingMetadata 
           }), {
-            headers: { 
-              "Content-Type": "application/json", 
-              "Access-Control-Allow-Origin": "*"
-            }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         } catch (error: any) {
-          console.error("Worker API Error:", error.message);
-          return new Response(JSON.stringify({ error: "L'IA ha riscontrato un problema: " + error.message }), { 
+          return new Response(JSON.stringify({ ok: false, error: "Errore IA: " + error.message }), { 
             status: 500,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" }
+            headers: { "Content-Type": "application/json", ...corsHeaders }
           });
         }
       }
     }
 
-    // 2. Servizio Asset Statici
+    // Servizio Asset Statici per SPA
     try {
       const response = await env.ASSETS.fetch(request);
       if (response.status === 404) {
-        // Supporto SPA (Single Page Application)
         return await env.ASSETS.fetch(new Request(new URL("/index.html", request.url)));
       }
       return response;

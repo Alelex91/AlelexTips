@@ -1,9 +1,18 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
-import { Schedina, Prediction, ComboTip } from "../types";
+import { Schedina } from "../types";
 
 export class BettingService {
-  private ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  private async callOracle(prompt: string, config: any = {}): Promise<any> {
+    const response = await fetch("/api/oracle/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, config })
+    });
+
+    const data = await response.json();
+    if (!data.ok) throw new Error(data.error || "Sincronizzazione fallita.");
+    return data;
+  }
 
   async generateDailySchedina(): Promise<Schedina> {
     const today = new Date();
@@ -13,124 +22,40 @@ export class BettingService {
     const todayISO = today.toISOString().split('T')[0];
     const tomorrowISO = tomorrow.toISOString().split('T')[0];
     
-    // Prompt ultra-direttivo per dati reali e formati coerenti
     const prompt = `USA GOOGLE SEARCH per trovare i match sportivi REALI che si giocano OGGI (${todayISO}) e DOMANI (${tomorrowISO}).
     Focus su: Serie A, Premier League, Liga, Bundesliga, NBA, Tennis ATP/WTA.
-    
-    REGOLE MANDATORIE PER IL JSON:
-    1. CAMPO 'date': Deve essere ESATTAMENTE 'YYYY-MM-DD'. Se il match è oggi scrivi '${todayISO}', se è domani '${tomorrowISO}'.
-    2. EVENTI REALI: Cerca match reali su Snai, Eurobet o Bet365. Non inventare dati.
-    3. QUOTE: Estrai quote reali aggiornate (es. 1.85, 2.10).
-    4. DISTRIBUZIONE: Includi match sia per oggi che per domani.
-    5. DETTAGLIO: Fornisci un 'recommendedScore' realistico basato sulla forma attuale delle squadre.`;
+    REGOLE MANDATORIE: Ritorna un JSON con predictions e dailyCombos. Usa formati YYYY-MM-DD.`;
 
-    const responseSchema = {
-      type: Type.OBJECT,
-      properties: {
-        predictions: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              match: {
-                type: Type.OBJECT,
-                properties: {
-                  homeTeam: { type: Type.STRING },
-                  awayTeam: { type: Type.STRING },
-                  league: { type: Type.STRING },
-                  time: { type: Type.STRING },
-                  date: { type: Type.STRING, description: "Formato rigoroso YYYY-MM-DD" },
-                  sport: { type: Type.STRING, description: "Football, Basketball, Tennis, o Volley" }
-                },
-                required: ["homeTeam", "awayTeam", "league", "time", "date", "sport"]
-              },
-              bet: { type: Type.STRING },
-              odds: { type: Type.NUMBER },
-              confidence: { type: Type.NUMBER },
-              reasoning: { type: Type.STRING },
-              marketType: { type: Type.STRING },
-              statistics: {
-                type: Type.OBJECT,
-                properties: {
-                  recentForm: { type: Type.STRING },
-                  tacticalInsight: { type: Type.STRING },
-                  winProbability: { type: Type.NUMBER },
-                  avgGoals: { type: Type.STRING },
-                  recommendedScore: { type: Type.STRING },
-                  scoreReasoning: { type: Type.STRING }
-                }
-              }
-            },
-            required: ["match", "bet", "odds", "confidence", "reasoning", "marketType"]
-          }
-        },
-        dailyCombos: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              title: { type: Type.STRING },
-              type: { type: Type.STRING },
-              totalOdds: { type: Type.NUMBER },
-              predictions: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    event: { type: Type.STRING },
-                    odds: { type: Type.NUMBER }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      required: ["predictions", "dailyCombos"]
+    const config = {
+      responseMimeType: "application/json",
+      tools: [{ googleSearch: {} }],
+      // Il worker non supporta responseSchema complesso via fetch facilmente senza Types pesanti,
+      // ma Gemini 3 Flash capisce bene il JSON richiesto dal prompt.
     };
 
+    const data = await this.callOracle(prompt, config);
+    
     try {
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-          tools: [{ googleSearch: {} }]
-        },
-      });
-
-      const text = response.text;
-      if (!text) throw new Error("Database temporaneamente non raggiungibile.");
-      
-      const data = JSON.parse(text);
+      const parsedData = JSON.parse(data.text);
       return { 
-        ...data, 
+        ...parsedData, 
         lastUpdated: new Date().toLocaleTimeString('it-IT') 
       };
-    } catch (error) {
-      console.error("Gemini Oracle Error:", error);
-      throw new Error("Errore durante la ricerca di match reali. Riprova.");
+    } catch (e) {
+      throw new Error("L'Oracolo ha inviato dati non validi. Riprova.");
     }
   }
 
   async sendMessageToChat(message: string, lat?: number, lng?: number): Promise<any> {
-    try {
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: message,
-        config: {
-          systemInstruction: "Sei l'Oracolo di NeoTip. Fornisci analisi sul betting cyberpunk e professionale. Usa Google Search.",
-          tools: [{ googleSearch: {} }]
-        },
-      });
-      return {
-        text: response.text,
-        groundingMetadata: response.candidates?.[0]?.groundingMetadata
-      };
-    } catch (error) {
-      console.error("Chat Error:", error);
-      throw error;
-    }
+    const config = {
+      systemInstruction: "Sei l'Oracolo di NeoTip. Fornisci analisi sul betting cyberpunk e professionale. Usa Google Search.",
+      tools: [{ googleSearch: {} }]
+    };
+
+    const data = await this.callOracle(message, config);
+    return {
+      text: data.text,
+      groundingMetadata: data.groundingMetadata
+    };
   }
 }
